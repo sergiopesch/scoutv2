@@ -6,7 +6,7 @@ import type {
 } from "../shared/types.js";
 
 export interface AnalysisUtterance extends Utterance {
-  participantRole: ParticipantRole;
+  participantRole: ParticipantRole | "unknown";
 }
 
 export interface AnalyzeMeetingInput {

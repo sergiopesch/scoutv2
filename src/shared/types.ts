@@ -31,17 +31,17 @@ export type GraphNodeKind = (typeof graphNodeKinds)[number];
 export type GraphState = (typeof graphStates)[number];
 export type GraphEdgeKind = (typeof graphEdgeKinds)[number];
 
-export type ParticipantRole = "operator" | "client" | "unknown";
-
 export interface Participant {
   id: string;
   name: string;
-  role: ParticipantRole;
   isBot?: boolean;
   platform?: string;
   platformIdentity?: string;
   joinedAt?: number;
+  role?: ParticipantRole;
 }
+
+export type ParticipantRole = "customer" | "operator";
 
 export interface Utterance {
   id: string;
@@ -153,6 +153,10 @@ export interface SessionSnapshot {
   analysis: {
     status: "idle" | "queued" | "running" | "error";
     pendingUtteranceCount: number;
+    automaticTurnsStarted?: number;
+    automaticTurnBudget?: number;
+    throttled?: boolean;
+    blockedReason?: string;
     lastCompletedAt?: number;
     lastError?: string;
   };

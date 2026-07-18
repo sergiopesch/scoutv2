@@ -9,6 +9,8 @@ describe("loadConfig", () => {
     expect(config.codex.reasoningEffort).toBe("low");
     expect(config.analysisDelayMs).toBe(500);
     expect(config.analysisRerunDelayMs).toBe(250);
+    expect(config.maxAutomaticAnalysisTurnsPerSession).toBe(20);
+    expect(config.maxActiveSessions).toBe(3);
     expect(config.allowDevIngest).toBe(false);
   });
 
@@ -41,6 +43,14 @@ describe("loadConfig", () => {
 
     expect(config.analysisDelayMs).toBe(900);
     expect(config.analysisRerunDelayMs).toBe(250);
+  });
+
+  it("enforces a nonzero safe floor for analysis delays and limits", () => {
+    expect(() => loadConfig({ ANALYSIS_DELAY_MS: "0" })).toThrow(/at least 100/);
+    expect(() => loadConfig({ ANALYSIS_RERUN_DELAY_MS: "99" })).toThrow(
+      /at least 100/
+    );
+    expect(() => loadConfig({ MAX_ACTIVE_SESSIONS: "0" })).toThrow(/at least 1/);
   });
 
   it("requires the workspace verification secret with a Recall key", () => {

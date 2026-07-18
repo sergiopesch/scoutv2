@@ -1,7 +1,7 @@
 export interface OperatorParticipant {
   id: string;
   name: string;
-  role?: "operator" | "client" | "unknown";
+  role?: "operator" | "customer";
   isBot?: boolean;
   platformIdentity?: string;
 }

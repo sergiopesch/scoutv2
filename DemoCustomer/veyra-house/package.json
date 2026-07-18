@@ -1,0 +1,14 @@
+{
+  "name": "veyra-house-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4173",
+    "build": "vite build --outDir dist/client && node scripts/prepare-sites.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4173"
+  },
+  "devDependencies": {
+    "vite": "^7.2.4"
+  }
+}

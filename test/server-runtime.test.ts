@@ -15,6 +15,8 @@ const baseConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   host: "127.0.0.1",
   analysisDelayMs: 1,
   analysisRerunDelayMs: 1,
+  maxAutomaticAnalysisTurnsPerSession: 20,
+  maxActiveSessions: 3,
   allowDevIngest: false,
   codex: {
     binary: "codex",
@@ -222,6 +224,11 @@ describe("Scout runtime", () => {
     expect(interim.revision).toBe(0);
 
     await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/participants/person-1/role`)
+      .send({ role: "customer" })
+      .expect(200);
+
+    await request(runtime.app)
       .post(`/webhooks/recall/${token}`)
       .set("Content-Type", "application/json")
       .send(JSON.stringify({ kind: "transcript" }))
@@ -237,6 +244,7 @@ describe("Scout runtime", () => {
     const snapshot = runtime.store.getRequired(sessionId);
     expect(snapshot.utterances).toHaveLength(1);
     expect(snapshot.participants[0]?.name).toBe("Alex");
+    expect(snapshot.participants[0]?.role).toBe("customer");
     expect(snapshot.recall.status).toBe("active");
     expect(snapshot.graph.topic.label).toBe("Billing workflow");
 
@@ -261,6 +269,25 @@ describe("Scout runtime", () => {
       .send({})
       .expect(404);
     await disabled.close();
+  });
+
+  it("limits concurrently active sessions before creating another bot", async () => {
+    const runtime = createScoutRuntime(
+      baseConfig({ maxActiveSessions: 1 }),
+      { analyzer: new FakeAnalyzer() }
+    );
+
+    await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/first" })
+      .expect(201);
+    const rejected = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/second" })
+      .expect(429);
+
+    expect(rejected.body.error).toContain("active session limit");
+    await runtime.close();
   });
 
   it("pauses upstream capture, discards paused transcript events, and resumes the same session", async () => {
@@ -295,6 +322,10 @@ describe("Scout runtime", () => {
       .set("Content-Type", "application/json")
       .send(JSON.stringify({ kind: "transcript" }))
       .expect(204);
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/participants/person-1/role`)
+      .send({ role: "customer" })
+      .expect(200);
     await eventually(() => runtime.store.getRequired(sessionId).revision === 1);
     const beforePause = runtime.store.getRequired(sessionId);
 
@@ -414,18 +445,15 @@ describe("Scout runtime", () => {
     const sessionId = created.body.sessionId as string;
     runtime.store.upsertParticipant(sessionId, {
       id: "person-1",
-      name: "Stephen",
-      role: "unknown"
+      name: "Stephen"
     });
     runtime.store.upsertParticipant(sessionId, {
       id: "person-2",
-      name: "Maya",
-      role: "unknown"
+      name: "Maya"
     });
     runtime.store.upsertParticipant(sessionId, {
       id: "bot-1",
       name: "Live Architect",
-      role: "unknown",
       isBot: true
     });
 
@@ -436,8 +464,8 @@ describe("Scout runtime", () => {
     expect(selected.body.operatorParticipantId).toBe("person-1");
     expect(selected.body.participants).toMatchObject([
       { id: "person-1", role: "operator" },
-      { id: "person-2", role: "client" },
-      { id: "bot-1", role: "unknown", isBot: true }
+      { id: "person-2", role: "customer" },
+      { id: "bot-1", isBot: true }
     ]);
 
     await request(runtime.app)
@@ -455,7 +483,7 @@ describe("Scout runtime", () => {
       .expect(200);
     expect(corrected.body.participants).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "person-1", role: "client" }),
+        expect.objectContaining({ id: "person-1", role: "customer" }),
         expect.objectContaining({ id: "person-2", role: "operator" })
       ])
     );
@@ -492,8 +520,7 @@ describe("Scout runtime", () => {
     const sessionId = created.body.sessionId as string;
     runtime.store.upsertParticipant(sessionId, {
       id: "person-1",
-      name: "Alex",
-      role: "unknown"
+      name: "Alex"
     });
     runtime.store.appendUtterance(sessionId, {
       id: "utt-1",
@@ -540,7 +567,7 @@ describe("Scout runtime", () => {
       id: sessionId,
       revision: 0,
       utterances: [],
-      participants: [{ id: "person-1", name: "Alex", role: "unknown" }],
+      participants: [{ id: "person-1", name: "Alex" }],
       recall: { status: "waiting", botId: "bot-test" },
       codex: { status: "idle" },
       processing: {

@@ -193,7 +193,6 @@ describe("Recall event normalization", () => {
         participant: {
           id: "73",
           name: "Jamie Chen",
-          role: "unknown",
           platform: "zoom",
           joinedAt: Date.parse("2026-07-18T10:05:06.000Z")
         }
@@ -223,7 +222,6 @@ describe("Recall event normalization", () => {
         type: "participant.joined",
         participant: {
           id: "74",
-          role: "unknown",
           platformIdentity: "zoom:stable-user-1"
         }
       }

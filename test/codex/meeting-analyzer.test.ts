@@ -148,9 +148,9 @@ const analyzeInput = () => ({
   sessionId: "session-1",
   currentGraph: emptyBusinessGraph(),
   participants: [
-    { id: "participant-1", name: "Alex", role: "client" as const }
+    { id: "participant-1", name: "Alex", role: "customer" as const }
   ],
-  newUtterances: [{ ...utterance, participantRole: "client" as const }]
+  newUtterances: [{ ...utterance, participantRole: "customer" as const }]
 });
 
 const waitUntil = async (predicate: () => boolean): Promise<void> => {
@@ -204,7 +204,10 @@ describe("CodexMeetingAnalyzer", () => {
     const prompt = (
       turnStart?.params.input as Array<{ text?: string }> | undefined
     )?.[0]?.text;
-    expect(prompt).toContain('"participantRole":"client"');
+    expect(prompt).toContain('"participantRole":"customer"');
+    expect(JSON.stringify(turnStart?.params.input)).toContain(
+      "NEW FINALIZED CUSTOMER EVIDENCE"
+    );
     expect(client.initializeCount).toBe(1);
     await analyzer.close();
     expect(client.closed).toBe(true);

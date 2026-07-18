@@ -266,7 +266,6 @@ const normalizeParticipant = (
       participant: {
         id: participantId(participant),
         name: asString(participant.name) ?? "Unknown participant",
-        role: "unknown",
         ...(asString(participant.platform)
           ? { platform: asString(participant.platform) }
           : {}),

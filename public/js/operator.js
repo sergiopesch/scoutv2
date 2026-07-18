@@ -142,7 +142,7 @@ function renderParticipants(next) {
     name.className = "participant-name";
     name.textContent = text(participant.name, "Unknown participant");
     const role = document.createElement("span");
-    role.className = "participant-role";
+    role.className = "participant-role-label";
     role.textContent = participant.roleLabel;
     copy.append(name, role);
     const button = document.createElement("button");
@@ -297,7 +297,11 @@ function render(next) {
     ? next.analysis.lastError
     : processingView.paused
       ? "Continue live processing before starting another analysis."
-      : "Sends finalized utterances not yet included in the accepted graph.";
+      : next.analysis?.blockedReason
+        ? next.analysis.blockedReason
+        : next.analysis?.throttled
+          ? `Automatic analysis budget reached (${next.analysis?.automaticTurnsStarted ?? 0}/${next.analysis?.automaticTurnBudget ?? 0}). Analyze now remains available.`
+          : "Sends finalized utterances not yet included in the accepted graph.";
 }
 
 async function chooseOperator(participantId) {

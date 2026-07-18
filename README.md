@@ -157,3 +157,7 @@ npm run build
 The test suite covers snapshot coordination, runtime routing, Recall
 normalization and signature checks, Codex JSON-RPC/structured output handling,
 session storage, and deterministic Mermaid generation.
+
+## Presentation
+
+Open the self-contained [Scout market vision presentation](Presentation/index.html) in a modern browser.

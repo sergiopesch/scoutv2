@@ -4,6 +4,8 @@ export interface AppConfig {
   publicBaseUrl?: string;
   analysisDelayMs: number;
   analysisRerunDelayMs: number;
+  maxAutomaticAnalysisTurnsPerSession: number;
+  maxActiveSessions: number;
   allowDevIngest: boolean;
   codex: {
     binary: string;
@@ -38,6 +40,19 @@ const parseInteger = (
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
     throw new Error(`${name} must be a non-negative integer.`);
+  }
+  return parsed;
+};
+
+const parseMinimumInteger = (
+  value: string | undefined,
+  fallback: number,
+  name: string,
+  minimum: number
+): number => {
+  const parsed = parseInteger(value, fallback, name);
+  if (parsed < minimum) {
+    throw new Error(`${name} must be an integer of at least ${minimum}.`);
   }
   return parsed;
 };
@@ -83,15 +98,29 @@ export const loadConfig = (
     publicBaseUrl: publicBaseUrl
       ? stripTrailingSlash(publicBaseUrl)
       : undefined,
-    analysisDelayMs: parseInteger(
+    analysisDelayMs: parseMinimumInteger(
       environment.ANALYSIS_DELAY_MS,
       500,
-      "ANALYSIS_DELAY_MS"
+      "ANALYSIS_DELAY_MS",
+      100
     ),
-    analysisRerunDelayMs: parseInteger(
+    analysisRerunDelayMs: parseMinimumInteger(
       environment.ANALYSIS_RERUN_DELAY_MS,
       250,
-      "ANALYSIS_RERUN_DELAY_MS"
+      "ANALYSIS_RERUN_DELAY_MS",
+      100
+    ),
+    maxAutomaticAnalysisTurnsPerSession: parseMinimumInteger(
+      environment.MAX_AUTOMATIC_ANALYSIS_TURNS_PER_SESSION,
+      20,
+      "MAX_AUTOMATIC_ANALYSIS_TURNS_PER_SESSION",
+      1
+    ),
+    maxActiveSessions: parseMinimumInteger(
+      environment.MAX_ACTIVE_SESSIONS,
+      3,
+      "MAX_ACTIVE_SESSIONS",
+      1
     ),
     allowDevIngest: environment.SCOUT_ALLOW_DEV_INGEST === "true",
     codex: {

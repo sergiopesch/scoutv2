@@ -104,6 +104,29 @@ describe("SessionStore", () => {
     expect(store.rebuild(session.id)).toEqual(latePartial);
   });
 
+  it("persists participant roles without letting later Recall updates erase them", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-roles");
+
+    store.upsertParticipant(session.id, { id: "person-1", name: "Alex" });
+    store.setParticipantRole(session.id, "person-1", "customer");
+    store.upsertParticipant(session.id, {
+      id: "person-1",
+      name: "Alex Morgan",
+      platform: "zoom"
+    });
+
+    expect(store.getRequired(session.id).participants).toEqual([
+      {
+        id: "person-1",
+        name: "Alex Morgan",
+        platform: "zoom",
+        role: "customer"
+      }
+    ]);
+    expect(store.rebuild(session.id).participants[0]?.role).toBe("customer");
+  });
+
   it("owns pause state in the event log and makes repeated transitions idempotent", () => {
     const store = new SessionStore();
     const session = store.create("https://zoom.example/test", "session-pause");
@@ -130,8 +153,7 @@ describe("SessionStore", () => {
     store.setStatus(session.id, "analyzing");
     store.upsertParticipant(session.id, {
       id: "person-1",
-      name: "Alex",
-      role: "unknown"
+      name: "Alex"
     });
     store.selectOperator(session.id, "person-1");
     store.setRecall(session.id, {
@@ -213,18 +235,15 @@ describe("SessionStore", () => {
     store.upsertParticipant(session.id, {
       id: "operator-old",
       name: "Stephen",
-      role: "unknown",
       platformIdentity: "zoom:stable-stephen"
     });
     store.upsertParticipant(session.id, {
       id: "client-1",
-      name: "Maya",
-      role: "unknown"
+      name: "Maya"
     });
     store.upsertParticipant(session.id, {
       id: "bot-1",
       name: "Live Architect",
-      role: "unknown",
       isBot: true
     });
 
@@ -239,8 +258,8 @@ describe("SessionStore", () => {
       )
     ).toEqual({
       "operator-old": "operator",
-      "client-1": "client",
-      "bot-1": "unknown"
+      "client-1": "customer",
+      "bot-1": undefined
     });
     expect(() => store.selectOperator(session.id, "bot-1")).toThrow(
       "cannot be selected"
@@ -249,7 +268,6 @@ describe("SessionStore", () => {
     const rejoined = store.upsertParticipant(session.id, {
       id: "operator-new",
       name: "Stephen",
-      role: "unknown",
       platformIdentity: "zoom:stable-stephen"
     });
     expect(rejoined.operatorParticipantId).toBe("operator-new");
