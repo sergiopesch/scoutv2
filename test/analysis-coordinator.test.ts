@@ -231,4 +231,32 @@ describe("AnalysisCoordinator", () => {
     expect(analyzer.calls).toHaveLength(1);
     await coordinator.close();
   });
+
+  it("cancels automatic analysis while paused and processes pending work on resume", async () => {
+    vi.useFakeTimers();
+    const store = new SessionStore();
+    const analyzer = new FakeAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1_500, 500);
+    const session = store.create("https://zoom.example/test", "session-paused");
+
+    addUtterance(store, session.id, "utt-1");
+    coordinator.schedule(session.id);
+    store.setProcessingPaused(session.id, true);
+    coordinator.setPaused(session.id, true);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await coordinator.analyzeNow(session.id);
+
+    expect(analyzer.calls).toHaveLength(0);
+    expect(store.getRequired(session.id).analysis.pendingUtteranceCount).toBe(1);
+
+    store.setProcessingPaused(session.id, false);
+    coordinator.setPaused(session.id, false);
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect(analyzer.calls).toHaveLength(1);
+    expect(analyzer.calls[0]?.newUtterances.map((item) => item.id)).toEqual([
+      "utt-1"
+    ]);
+    await coordinator.close();
+  });
 });

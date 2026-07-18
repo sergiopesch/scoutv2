@@ -61,6 +61,12 @@ export type SessionEvent =
   | {
       sequence: number;
       occurredAt: number;
+      type: "processing.paused-set";
+      paused: boolean;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
       type: "graph.accepted";
       graph: BusinessGraph;
     };
@@ -89,6 +95,11 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     graph: emptyBusinessGraph(),
     recall: { status: "idle" },
     codex: { status: "idle" },
+    processing: {
+      paused: false,
+      changedAt: created.occurredAt,
+      incomingTranscriptPolicy: "discard"
+    },
     analysis: { status: "idle", pendingUtteranceCount: 0 }
   };
 
@@ -148,6 +159,13 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
         break;
       case "analysis.state-set":
         snapshot.analysis = event.analysis;
+        break;
+      case "processing.paused-set":
+        snapshot.processing = {
+          paused: event.paused,
+          changedAt: event.occurredAt,
+          incomingTranscriptPolicy: "discard"
+        };
         break;
       case "graph.accepted":
         snapshot.graph = event.graph;
@@ -243,6 +261,12 @@ export class SessionStore {
     analysis: SessionSnapshot["analysis"]
   ): SessionSnapshot {
     return this.append(id, { type: "analysis.state-set", analysis });
+  }
+
+  setProcessingPaused(id: string, paused: boolean): SessionSnapshot {
+    const current = this.getRequired(id);
+    if (current.processing.paused === paused) return current;
+    return this.append(id, { type: "processing.paused-set", paused });
   }
 
   acceptGraph(id: string, graph: BusinessGraph): SessionSnapshot {

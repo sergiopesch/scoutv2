@@ -41,6 +41,12 @@ const DevUtteranceSchema = z
   })
   .strict();
 
+const ProcessingStateSchema = z
+  .object({
+    paused: z.boolean()
+  })
+  .strict();
+
 export interface ScoutRuntimeDependencies {
   analyzer?: MeetingAnalyzer;
   recall?: RecallAdapter;
@@ -136,6 +142,7 @@ export const createScoutRuntime = (
       : recall);
   const sessionTokens = new Map<string, string>();
   const botSessions = new Map<string, string>();
+  const processingTransitions = new Map<string, Promise<void>>();
   const publicDir = publicDirectory();
 
   const applyEvents = async (
@@ -143,6 +150,13 @@ export const createScoutRuntime = (
     events: NormalizedMeetingEvent[]
   ): Promise<void> => {
     for (const event of events) {
+      if (
+        store.getRequired(sessionId).processing.paused &&
+        (event.type === "transcript.partial" ||
+          event.type === "transcript.final")
+      ) {
+        continue;
+      }
       if (event.type === "participant.joined") {
         store.upsertParticipant(sessionId, event.participant);
         continue;
@@ -180,6 +194,58 @@ export const createScoutRuntime = (
       });
     }
   };
+
+  const enqueueProcessingOperation = (
+    sessionId: string,
+    operation: () => void | Promise<void>
+  ): Promise<void> => {
+    const previous = processingTransitions.get(sessionId) ?? Promise.resolve();
+    const transition = previous
+      .catch(() => undefined)
+      .then(operation);
+    processingTransitions.set(sessionId, transition);
+    void transition.then(
+      () => {
+        if (processingTransitions.get(sessionId) === transition) {
+          processingTransitions.delete(sessionId);
+        }
+      },
+      () => {
+        if (processingTransitions.get(sessionId) === transition) {
+          processingTransitions.delete(sessionId);
+        }
+      }
+    );
+    return transition;
+  };
+
+  const transitionProcessing = (
+    sessionId: string,
+    paused: boolean
+  ): Promise<void> =>
+    enqueueProcessingOperation(sessionId, async () => {
+      const current = store.getRequired(sessionId);
+      if (current.processing.paused === paused) return;
+
+      if (recall && current.recall.botId) {
+        if (paused) await recall.pauseRecording(current.recall.botId);
+        else await recall.resumeRecording(current.recall.botId);
+      }
+
+      store.setProcessingPaused(sessionId, paused);
+      coordinator.setPaused(sessionId, paused);
+      const nextRecall = store.getRequired(sessionId).recall;
+      store.setRecall(sessionId, {
+        ...nextRecall,
+        detail: current.recall.botId
+          ? paused
+            ? "Recording and real-time transcription paused"
+            : "Recording and real-time transcription active"
+          : paused
+            ? "Server processing paused; waiting for an active Recall bot"
+            : "Live server processing active; waiting for an active Recall bot"
+      });
+    });
 
   const dynamicWebhook: RequestHandler = (
     request: Request,
@@ -298,7 +364,7 @@ export const createScoutRuntime = (
         sessionId: snapshot.id,
         sessionToken
       })
-      .then(({ botId }) => {
+      .then(async ({ botId }) => {
         botSessions.set(botId, snapshot.id);
         store.setRecall(snapshot.id, {
           status: "waiting",
@@ -306,6 +372,26 @@ export const createScoutRuntime = (
           detail: "Waiting for host admission"
         });
         store.setStatus(snapshot.id, "waiting_for_admission");
+        await enqueueProcessingOperation(snapshot.id, async () => {
+          if (store.getRequired(snapshot.id).processing.paused) {
+            try {
+              await recall.pauseRecording(botId);
+              const current = store.getRequired(snapshot.id).recall;
+              store.setRecall(snapshot.id, {
+                ...current,
+                detail: "Recording and real-time transcription paused"
+              });
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              store.setRecall(snapshot.id, {
+                status: "error",
+                botId,
+                detail: `${message}; server processing remains paused`
+              });
+            }
+          }
+        });
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -334,9 +420,35 @@ export const createScoutRuntime = (
     response.json(toWhiteboardSnapshot(snapshot));
   });
 
-  app.post("/api/sessions/:sessionId/analyze", (request, response) => {
-    if (!store.get(request.params.sessionId)) {
+  app.put("/api/sessions/:sessionId/processing", async (request, response) => {
+    const sessionId = request.params.sessionId;
+    if (!store.get(sessionId)) {
       response.status(404).json({ error: "session not found" });
+      return;
+    }
+    const parsed = ProcessingStateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ error: "paused must be a boolean" });
+      return;
+    }
+    try {
+      await transitionProcessing(sessionId, parsed.data.paused);
+      response.setHeader("Cache-Control", "no-store");
+      response.json(store.getRequired(sessionId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.status(502).json({ error: message });
+    }
+  });
+
+  app.post("/api/sessions/:sessionId/analyze", (request, response) => {
+    const snapshot = store.get(request.params.sessionId);
+    if (!snapshot) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    if (snapshot.processing.paused) {
+      response.status(409).json({ error: "live processing is paused" });
       return;
     }
     void coordinator.analyzeNow(request.params.sessionId);
@@ -347,6 +459,12 @@ export const createScoutRuntime = (
     app.post("/api/dev/sessions/:sessionId/utterances", (request, response) => {
       if (!store.get(request.params.sessionId)) {
         response.status(404).json({ error: "session not found" });
+        return;
+      }
+      if (store.getRequired(request.params.sessionId).processing.paused) {
+        response.status(409).json({
+          error: "live processing is paused; incoming utterances are discarded"
+        });
         return;
       }
       const parsed = DevUtteranceSchema.safeParse(request.body);

@@ -103,4 +103,24 @@ describe("SessionStore", () => {
     expect(latePartial.analysis.pendingUtteranceCount).toBe(1);
     expect(store.rebuild(session.id)).toEqual(latePartial);
   });
+
+  it("owns pause state in the event log and makes repeated transitions idempotent", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-pause");
+
+    const paused = store.setProcessingPaused(session.id, true);
+    const repeated = store.setProcessingPaused(session.id, true);
+
+    expect(paused.processing).toMatchObject({
+      paused: true,
+      incomingTranscriptPolicy: "discard"
+    });
+    expect(repeated).toEqual(paused);
+    expect(
+      store
+        .getEvents(session.id)
+        .filter((event) => event.type === "processing.paused-set")
+    ).toHaveLength(1);
+    expect(store.rebuild(session.id)).toEqual(paused);
+  });
 });
