@@ -21,3 +21,11 @@ export function sessionApiPath(sessionId) {
 export function sessionEventsPath(sessionId) {
   return `/events/${encodeURIComponent(sessionId)}`;
 }
+
+export function whiteboardApiPath(sessionId) {
+  return `/api/whiteboards/${encodeURIComponent(sessionId)}`;
+}
+
+export function whiteboardEventsPath(sessionId) {
+  return `/events/whiteboards/${encodeURIComponent(sessionId)}`;
+}

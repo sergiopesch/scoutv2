@@ -2,6 +2,9 @@
   "name": "scoutv2",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "description": "Conversation-aware live business architecture whiteboard",
   "scripts": {

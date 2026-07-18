@@ -17,7 +17,7 @@ describe("SessionStore", () => {
     expect(updated.analysis.status).toBe("idle");
   });
 
-  it("deduplicates finalized utterances by stable ID", () => {
+  it("keeps utterance revisions in the append-only log and rebuilds the projection", () => {
     const store = new SessionStore();
     const session = store.create("https://zoom.example/test", "session-2");
     const utterance = {
@@ -40,5 +40,29 @@ describe("SessionStore", () => {
     const updated = store.getRequired(session.id);
     expect(updated.utterances).toHaveLength(1);
     expect(updated.utterances[0]?.text).toContain("manually");
+    expect(updated.analysis.pendingUtteranceCount).toBe(1);
+    expect(
+      store
+        .getEvents(session.id)
+        .filter((event) => event.type === "utterance.recorded")
+    ).toHaveLength(2);
+    expect(store.rebuild(session.id)).toEqual(updated);
+
+    store.acceptGraph(session.id, updated.graph);
+    const redelivered = store.appendUtterance(session.id, utterance);
+    expect(redelivered.analysis.pendingUtteranceCount).toBe(0);
+  });
+
+  it("returns event copies that cannot rewrite canonical history", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-3");
+    const events = store.getEvents(session.id);
+    if (events[0]?.type === "session.created") {
+      events[0].meetingUrl = "https://attacker.example/changed";
+    }
+
+    expect(store.getRequired(session.id).meetingUrl).toBe(
+      "https://zoom.example/test"
+    );
   });
 });

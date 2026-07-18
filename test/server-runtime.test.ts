@@ -160,6 +160,16 @@ describe("Scout runtime", () => {
     expect(snapshot.participants[0]?.name).toBe("Alex");
     expect(snapshot.recall.status).toBe("active");
     expect(snapshot.graph.topic.label).toBe("Billing workflow");
+
+    const whiteboard = await request(runtime.app)
+      .get(`/api/whiteboards/${sessionId}`)
+      .expect(200);
+    expect(whiteboard.body.graph.topic.label).toBe("Billing workflow");
+    expect(whiteboard.body).not.toHaveProperty("meetingUrl");
+    expect(whiteboard.body).not.toHaveProperty("participants");
+    expect(whiteboard.body).not.toHaveProperty("utterances");
+    expect(whiteboard.body).not.toHaveProperty("recall");
+    expect(whiteboard.body).not.toHaveProperty("codex");
     await runtime.close();
   });
 

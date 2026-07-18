@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   parseSessionId,
   sessionApiPath,
-  sessionEventsPath
+  sessionEventsPath,
+  whiteboardApiPath,
+  whiteboardEventsPath
 } from "../../public/js/session-id.js";
+import { formatClock } from "../../public/js/session-stream.js";
 
 describe("parseSessionId", () => {
   it("reads IDs from operator and whiteboard routes", () => {
@@ -24,5 +27,18 @@ describe("session endpoint helpers", () => {
   it("encodes session IDs as path segments", () => {
     expect(sessionApiPath("meeting one")).toBe("/api/sessions/meeting%20one");
     expect(sessionEventsPath("meeting one")).toBe("/events/meeting%20one");
+    expect(whiteboardApiPath("meeting one")).toBe(
+      "/api/whiteboards/meeting%20one"
+    );
+    expect(whiteboardEventsPath("meeting one")).toBe(
+      "/events/whiteboards/meeting%20one"
+    );
+  });
+});
+
+describe("formatClock", () => {
+  it("formats Recall relative seconds as meeting elapsed time", () => {
+    expect(formatClock(12.25)).toBe("00:00:12");
+    expect(formatClock(3_661)).toBe("01:01:01");
   });
 });

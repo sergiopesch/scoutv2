@@ -107,7 +107,10 @@ function renderTranscript(utterances = []) {
     speaker.className = "utterance-speaker";
     speaker.textContent = text(utterance.participantName, "Unknown speaker");
     const time = document.createElement("time");
-    if (Number.isFinite(utterance.startedAt)) {
+    if (
+      Number.isFinite(utterance.startedAt) &&
+      utterance.startedAt >= 100_000_000_000
+    ) {
       time.dateTime = new Date(utterance.startedAt).toISOString();
     }
     time.textContent = formatClock(utterance.startedAt);

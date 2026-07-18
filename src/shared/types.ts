@@ -147,6 +147,26 @@ export interface SessionSnapshot {
   };
 }
 
+export interface WhiteboardSnapshot {
+  id: string;
+  updatedAt: number;
+  revision: number;
+  status: SessionStatus;
+  graph: BusinessGraph;
+  analysis: Pick<SessionSnapshot["analysis"], "status">;
+}
+
+export const toWhiteboardSnapshot = (
+  snapshot: SessionSnapshot
+): WhiteboardSnapshot => ({
+  id: snapshot.id,
+  updatedAt: snapshot.updatedAt,
+  revision: snapshot.revision,
+  status: snapshot.status,
+  graph: structuredClone(snapshot.graph),
+  analysis: { status: snapshot.analysis.status }
+});
+
 export const emptyBusinessGraph = (): BusinessGraph => ({
   topic: { id: "discovery", label: "Business discovery" },
   nodes: [],

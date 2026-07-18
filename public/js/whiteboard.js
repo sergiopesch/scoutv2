@@ -1,7 +1,10 @@
 import mermaid from "/vendor/mermaid/mermaid.esm.min.mjs";
 import { businessGraphToMermaid } from "./mermaid-graph.js";
 import { parseSessionId } from "./session-id.js";
-import { loadSession, subscribeToSession } from "./session-stream.js";
+import {
+  loadWhiteboard,
+  subscribeToWhiteboard
+} from "./session-stream.js";
 
 const elements = {
   topic: document.querySelector("#topic"),
@@ -117,9 +120,9 @@ async function start() {
     return;
   }
   try {
-    const initial = await loadSession(sessionId);
+    const initial = await loadWhiteboard(sessionId);
     renderSnapshot(initial);
-    subscribeToSession(sessionId, {
+    subscribeToWhiteboard(sessionId, {
       onSnapshot: renderSnapshot,
       onConnection(state) {
         setStatus(currentSnapshot ?? initial, state);

@@ -26,6 +26,7 @@ import {
   recallRawJsonBody
 } from "./recall/index.js";
 import { SessionStore } from "./session-store.js";
+import { toWhiteboardSnapshot } from "../shared/types.js";
 
 const DevUtteranceSchema = z
   .object({
@@ -313,6 +314,16 @@ export const createScoutRuntime = (
     response.json(snapshot);
   });
 
+  app.get("/api/whiteboards/:sessionId", (request, response) => {
+    const snapshot = store.get(request.params.sessionId);
+    if (!snapshot) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.json(toWhiteboardSnapshot(snapshot));
+  });
+
   app.post("/api/sessions/:sessionId/analyze", (request, response) => {
     if (!store.get(request.params.sessionId)) {
       response.status(404).json({ error: "session not found" });
@@ -361,6 +372,34 @@ export const createScoutRuntime = (
 
     const unsubscribe = store.subscribe(request.params.sessionId, (next) => {
       response.write(`event: session\ndata: ${JSON.stringify(next)}\n\n`);
+    });
+    const heartbeat = setInterval(() => {
+      response.write(": heartbeat\n\n");
+    }, 15_000);
+
+    request.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
+
+  app.get("/events/whiteboards/:sessionId", (request, response) => {
+    if (!store.get(request.params.sessionId)) {
+      response.status(404).end();
+      return;
+    }
+
+    response.status(200);
+    response.setHeader("Content-Type", "text/event-stream");
+    response.setHeader("Cache-Control", "no-cache, no-transform");
+    response.setHeader("Connection", "keep-alive");
+    response.setHeader("X-Accel-Buffering", "no");
+    response.flushHeaders();
+
+    const unsubscribe = store.subscribe(request.params.sessionId, (next) => {
+      response.write(
+        `event: whiteboard\ndata: ${JSON.stringify(toWhiteboardSnapshot(next))}\n\n`
+      );
     });
     const heartbeat = setInterval(() => {
       response.write(": heartbeat\n\n");
