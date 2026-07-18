@@ -1,0 +1,35 @@
+[Unit]
+Description=Scout v2 live meeting architect
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=scout
+Group=scout
+WorkingDirectory=/opt/scout
+EnvironmentFile=/etc/scout/scout.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+UMask=0077
+# Keep this above SHUTDOWN_GRACE_MS (60 seconds in .env.example) so systemd
+# cannot kill Scout while it is still retiring Recall bots and Codex.
+TimeoutStopSec=75
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+ReadWritePaths=/tmp /home/scout/.codex
+
+[Install]
+WantedBy=multi-user.target

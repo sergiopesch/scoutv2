@@ -18,6 +18,11 @@ export interface BrowserBusinessGraph {
     description?: unknown;
     targetNodeIds?: unknown[];
     severity?: string;
+    state?: string;
+  }>;
+  contradictions?: Array<{
+    id?: unknown;
+    description?: unknown;
   }>;
 }
 

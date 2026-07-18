@@ -7,26 +7,33 @@ describe("loadConfig", () => {
 
     expect(config.recall).toBeUndefined();
     expect(config.codex.reasoningEffort).toBe("low");
-    expect(config.analysisDelayMs).toBe(500);
-    expect(config.analysisRerunDelayMs).toBe(250);
+    expect(config.analysisDelayMs).toBe(8_000);
+    expect(config.analysisRerunDelayMs).toBe(2_000);
+    expect(config.analysisMaxBatchUtterances).toBe(40);
+    expect(config.analysisMaxBatchBytes).toBe(48_000);
     expect(config.maxAutomaticAnalysisTurnsPerSession).toBe(20);
     expect(config.maxActiveSessions).toBe(3);
+    expect(config.maxSseConnections).toBe(128);
+    expect(config.maxSseConnectionsPerSession).toBe(32);
+    expect(config.sessionRetentionMs).toBe(4 * 60 * 60 * 1_000);
+    expect(config.shutdownGraceMs).toBe(60_000);
     expect(config.allowDevIngest).toBe(false);
   });
 
   it("normalizes public and Recall base URLs", () => {
     const config = loadConfig({
-      PUBLIC_API_BASE_URL: "https://scout.example/",
+      PUBLIC_API_BASE_URL: "https://scout.example.dev/",
       RECALL_API_KEY: "test-key",
       RECALL_REGION: "eu-central-1",
       RECALL_WORKSPACE_VERIFICATION_SECRET: "whsec_test"
     });
 
-    expect(config.publicBaseUrl).toBe("https://scout.example");
+    expect(config.publicBaseUrl).toBe("https://scout.example.dev");
     expect(config.recall?.apiBaseUrl).toBe(
       "https://eu-central-1.recall.ai/api/v1"
     );
     expect(config.recall?.statusWebhookSecret).toBe("whsec_test");
+    expect(config.recall?.statusWebhookVerificationMode).toBe("workspace");
   });
 
   it("rejects unsupported reasoning effort", () => {
@@ -57,5 +64,25 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ RECALL_API_KEY: "test-key" })).toThrow(
       /WORKSPACE_VERIFICATION_SECRET/
     );
+  });
+
+  it("rejects non-HTTPS public callback URLs", () => {
+    expect(() =>
+      loadConfig({ PUBLIC_API_BASE_URL: "http://127.0.0.1:3000" })
+    ).toThrow(/must use HTTPS/);
+    expect(() =>
+      loadConfig({ PUBLIC_API_BASE_URL: "https://localhost:3000" })
+    ).toThrow(/publicly reachable hostname/);
+  });
+
+  it("uses explicit legacy Svix verification only when its secret is set", () => {
+    const config = loadConfig({
+      RECALL_API_KEY: "test-key",
+      RECALL_WORKSPACE_VERIFICATION_SECRET: "workspace-secret",
+      RECALL_SVIX_WEBHOOK_SECRET: "legacy-secret"
+    });
+
+    expect(config.recall?.statusWebhookSecret).toBe("legacy-secret");
+    expect(config.recall?.statusWebhookVerificationMode).toBe("svix");
   });
 });

@@ -13,7 +13,8 @@ export const BusinessGraphSchema = z
     topic: z
       .object({
         id: z.string().min(1).max(64),
-        label: z.string().min(1).max(100)
+        label: z.string().min(1).max(100),
+        evidenceUtteranceIds: evidenceIds
       })
       .strict(),
     nodes: z
@@ -111,6 +112,7 @@ export const validateGraphReferences = (
   }
 
   const evidenceGroups = [
+    [graph.topic.id, graph.topic.evidenceUtteranceIds] as const,
     ...graph.nodes.map((item) => [item.id, item.evidenceUtteranceIds] as const),
     ...graph.edges.map((item) => [item.id, item.evidenceUtteranceIds] as const),
     ...graph.pains.map((item) => [item.id, item.evidenceUtteranceIds] as const),
@@ -138,6 +140,7 @@ export const validateCustomerEvidence = (
 ): string[] => {
   const errors: string[] = [];
   const evidenceGroups = [
+    [graph.topic.id, graph.topic.evidenceUtteranceIds] as const,
     ...graph.nodes.map((item) => [item.id, item.evidenceUtteranceIds] as const),
     ...graph.edges.map((item) => [item.id, item.evidenceUtteranceIds] as const),
     ...graph.pains.map((item) => [item.id, item.evidenceUtteranceIds] as const),

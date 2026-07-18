@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22"
+    "node": ">=22.23.1 <23",
+    "npm": "10.9.8"
   },
+  "packageManager": "npm@10.9.8",
   "type": "module",
   "description": "Conversation-aware live business architecture whiteboard",
   "scripts": {
@@ -12,6 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server/index.js",
     "test": "vitest run",
+    "check": "npm test && npm run typecheck && npm run build && git diff --check",
     "typecheck": "tsc --noEmit",
     "generate:codex-schemas": "codex app-server generate-ts --out src/server/codex/generated"
   },

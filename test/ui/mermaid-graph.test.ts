@@ -5,7 +5,11 @@ import {
 } from "../../public/js/mermaid-graph.js";
 
 const graph = {
-  topic: { id: "topic", label: "Order fulfilment" },
+  topic: {
+    id: "topic",
+    label: "Order fulfilment",
+    evidenceUtteranceIds: ["utt-1"]
+  },
   nodes: [
     {
       id: "unsafe; click node",
@@ -34,7 +38,14 @@ const graph = {
       id: "pain-a",
       description: "Manual; fragile",
       targetNodeIds: ["ops"],
-      severity: "high"
+      severity: "high",
+      state: "desired"
+    }
+  ],
+  contradictions: [
+    {
+      id: "conflict-a",
+      description: "Finance says same day; Ops says two days"
     }
   ]
 };
@@ -62,7 +73,31 @@ describe("businessGraphToMermaid", () => {
     expect(output).toContain("class node_0 desired\n");
     expect(output).toContain("class node_0 kind-team\n");
     expect(output).toContain("class pain_0 pain\n");
+    expect(output).toContain("class pain_0 pain-desired\n");
     expect(output).toContain("class pain_0 pain-high\n");
+    expect(output).toContain("CONTRADICTION · Finance says same day");
+    expect(output).toContain("class contradiction_0 contradiction");
+  });
+
+  it("gives current, desired, hypothetical and unknown edges distinct treatments", () => {
+    const output = businessGraphToMermaid({
+      nodes: graph.nodes,
+      edges: [
+        { id: "1", from: "ops", to: "unsafe; click node", label: "current", state: "current" },
+        { id: "2", from: "ops", to: "unsafe; click node", label: "desired", state: "desired" },
+        { id: "3", from: "ops", to: "unsafe; click node", label: "hypothesis", state: "hypothesis" },
+        { id: "4", from: "ops", to: "unsafe; click node", label: "unknown", state: "unknown" }
+      ]
+    });
+
+    expect(output).toContain("-->|current|");
+    expect(output).toContain("==>|desired|");
+    expect(output).toContain("-.->|hypothesis|");
+    expect(output).toContain("-.->|unknown|");
+    expect(output).toContain("linkStyle 0 stroke:#101115,stroke-width:2px");
+    expect(output).toContain("linkStyle 1 stroke:#101115,stroke-width:4px");
+    expect(output).toContain("linkStyle 2 stroke:#62656C,stroke-width:2px,stroke-dasharray:7 4");
+    expect(output).toContain("linkStyle 3 stroke:#8A8C91,stroke-width:2px,stroke-dasharray:2 5");
   });
 
   it("omits edges whose endpoints do not exist", () => {

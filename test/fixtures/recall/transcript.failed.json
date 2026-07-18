@@ -1,0 +1,19 @@
+{
+  "event": "transcript.failed",
+  "data": {
+    "data": {
+      "code": "provider_error",
+      "sub_code": "transcription_provider_unavailable",
+      "message": "The transcript provider was unavailable.",
+      "updated_at": "2026-07-18T10:05:10.000Z"
+    },
+    "bot": {
+      "id": "bot-demo",
+      "metadata": { "scout_correlation_id": "correlation-token-demo" }
+    },
+    "transcript": {
+      "id": "transcript-demo",
+      "metadata": {}
+    }
+  }
+}

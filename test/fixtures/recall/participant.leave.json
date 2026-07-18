@@ -1,0 +1,26 @@
+{
+  "event": "participant_events.leave",
+  "data": {
+    "data": {
+      "participant": {
+        "id": 73,
+        "name": "Jamie Chen",
+        "is_host": false,
+        "platform": "zoom",
+        "extra_data": {
+          "zoom": { "conf_user_id": "stable-jamie-73" }
+        },
+        "email": "jamie@example.org"
+      },
+      "timestamp": {
+        "absolute": "2026-07-18T10:30:00.000Z",
+        "relative": 1497.2
+      },
+      "data": null
+    },
+    "bot": {
+      "id": "bot-demo",
+      "metadata": { "scout_correlation_id": "correlation-token-demo" }
+    }
+  }
+}

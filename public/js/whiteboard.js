@@ -1,10 +1,15 @@
 import mermaid from "/vendor/mermaid/mermaid.esm.min.mjs";
 import { businessGraphToMermaid } from "./mermaid-graph.js";
+import { createRevisionRenderer } from "./revision-renderer.js";
 import { parseSessionId } from "./session-id.js";
 import {
   loadWhiteboard,
   subscribeToWhiteboard
 } from "./session-stream.js";
+import {
+  shouldAcceptSnapshot,
+  whiteboardStatusView
+} from "./ui-state.js";
 
 const elements = {
   topic: document.querySelector("#topic"),
@@ -17,9 +22,9 @@ const elements = {
 };
 
 const sessionId = parseSessionId();
-let lastRenderedRevision = -1;
-let renderSequence = 0;
 let currentSnapshot;
+let streamConnectionState = "connecting";
+let stopStream;
 
 mermaid.initialize({
   startOnLoad: false,
@@ -48,69 +53,74 @@ mermaid.initialize({
 });
 
 function setStatus(snapshot, connectionState = "live") {
-  const status =
-    snapshot?.analysis?.status === "running" || snapshot?.status === "analyzing"
-      ? "analyzing"
-      : snapshot?.analysis?.status === "error" || snapshot?.status === "error"
-        ? "error"
-        : connectionState === "reconnecting"
-          ? "reconnecting"
-          : "listening";
-  const labels = {
-    listening: "Listening · updates live",
-    analyzing: "Analyzing conversation",
-    error: "Needs operator attention",
-    reconnecting: "Reconnecting"
-  };
-  elements.statusDot.dataset.state = status;
-  elements.statusLabel.textContent = labels[status];
+  const view = whiteboardStatusView(snapshot, connectionState);
+  elements.statusDot.dataset.state = view.state;
+  elements.statusLabel.textContent = view.label;
 }
 
 function showRenderError(error) {
+  if (!error) {
+    elements.alert.hidden = true;
+    elements.alert.textContent = "";
+    return;
+  }
   elements.alert.hidden = false;
   elements.alert.textContent = `Map update paused — keeping the last valid view. ${
     error instanceof Error ? error.message : String(error)
   }`;
 }
 
-async function renderGraph(snapshot) {
+async function stageGraph(snapshot, renderSequence) {
   const revision = Number(snapshot.revision ?? 0);
-  if (revision === lastRenderedRevision) return;
-  const thisRender = ++renderSequence;
   const source = businessGraphToMermaid(snapshot.graph);
-  try {
-    const { svg, bindFunctions } = await mermaid.render(
-      `scout-graph-${revision}-${thisRender}`,
-      source
-    );
-    if (thisRender !== renderSequence) return;
-    const staging = document.createElement("div");
-    staging.innerHTML = svg;
-    const renderedSvg = staging.querySelector("svg");
-    if (!renderedSvg) throw new Error("Mermaid returned no SVG.");
-    renderedSvg.setAttribute("role", "img");
-    renderedSvg.setAttribute(
-      "aria-label",
-      `Business workflow, revision ${revision}`
-    );
-    elements.frame.replaceChildren(renderedSvg);
-    bindFunctions?.(elements.frame);
-    lastRenderedRevision = revision;
-    elements.alert.hidden = true;
-  } catch (error) {
-    showRenderError(error);
-  }
+  const { svg, bindFunctions } = await mermaid.render(
+    `scout-graph-${revision}-${renderSequence}`,
+    source
+  );
+  const staging = document.createElement("div");
+  staging.innerHTML = svg;
+  const renderedSvg = staging.querySelector("svg");
+  if (!renderedSvg) throw new Error("Mermaid returned no SVG.");
+  renderedSvg.setAttribute("role", "img");
+  renderedSvg.setAttribute(
+    "aria-label",
+    `Business workflow, revision ${revision}`
+  );
+  return { renderedSvg, bindFunctions };
 }
 
-function renderSnapshot(snapshot) {
-  currentSnapshot = snapshot;
+function commitGraph(snapshot, staged) {
+  elements.frame.replaceChildren(staged.renderedSvg);
+  staged.bindFunctions?.(elements.frame);
+  elements.frame.dataset.revision = String(snapshot.revision ?? 0);
   elements.topic.textContent =
     snapshot.graph?.topic?.label || "Business discovery in progress";
-  setStatus(snapshot);
   const question = snapshot.graph?.suggestedQuestion?.text;
   elements.followUp.hidden = !question;
   elements.followUpText.textContent = question || "";
-  renderGraph(snapshot);
+}
+
+const graphRenderer = createRevisionRenderer({
+  render: stageGraph,
+  commit: commitGraph,
+  keyOf(snapshot) {
+    return `${snapshot.revision ?? 0}:${JSON.stringify(snapshot.graph ?? {})}`;
+  },
+  orderOf(snapshot) {
+    return Number(snapshot.updatedAt ?? snapshot.revision ?? 0);
+  },
+  onError: showRenderError,
+  onBusy(busy) {
+    elements.frame.setAttribute("aria-busy", String(busy));
+  }
+});
+
+function renderSnapshot(next) {
+  if (!shouldAcceptSnapshot(currentSnapshot, next)) return;
+  currentSnapshot = next;
+  setStatus(next, streamConnectionState);
+  void graphRenderer.offer(next);
+  if (next.status === "error") stopStream?.();
 }
 
 async function start() {
@@ -120,19 +130,26 @@ async function start() {
     return;
   }
   try {
-    const initial = await loadWhiteboard(sessionId);
-    renderSnapshot(initial);
-    subscribeToWhiteboard(sessionId, {
+    stopStream = subscribeToWhiteboard(sessionId, {
       onSnapshot: renderSnapshot,
       onConnection(state) {
-        setStatus(currentSnapshot ?? initial, state);
+        streamConnectionState = state;
+        setStatus(currentSnapshot, state);
       },
       onError: showRenderError
     });
+    renderSnapshot(await loadWhiteboard(sessionId));
   } catch (error) {
-    setStatus({ status: "error" });
-    showRenderError(error);
+    if (!currentSnapshot) {
+      setStatus({ status: "error" });
+      showRenderError(error);
+    }
   }
 }
+
+window.addEventListener("pagehide", () => {
+  stopStream?.();
+  graphRenderer.dispose();
+});
 
 start();

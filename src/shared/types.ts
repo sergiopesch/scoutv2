@@ -38,6 +38,8 @@ export interface Participant {
   platform?: string;
   platformIdentity?: string;
   joinedAt?: number;
+  leftAt?: number;
+  present?: boolean;
   role?: ParticipantRole;
 }
 
@@ -57,6 +59,7 @@ export interface Utterance {
 export interface Topic {
   id: string;
   label: string;
+  evidenceUtteranceIds: string[];
 }
 
 export interface GraphNode {
@@ -108,6 +111,15 @@ export interface BusinessGraph {
   suggestedQuestion?: SuggestedQuestion;
 }
 
+export interface WhiteboardBusinessGraph {
+  topic: Omit<Topic, "evidenceUtteranceIds">;
+  nodes: Array<Omit<GraphNode, "evidenceUtteranceIds">>;
+  edges: Array<Omit<GraphEdge, "evidenceUtteranceIds">>;
+  pains: Array<Omit<PainPoint, "evidenceUtteranceIds">>;
+  contradictions: Array<Omit<Contradiction, "evidenceUtteranceIds">>;
+  suggestedQuestion?: Omit<SuggestedQuestion, "evidenceUtteranceIds">;
+}
+
 export type SessionStatus =
   | "creating"
   | "waiting_for_admission"
@@ -127,6 +139,7 @@ export type IntegrationStatus =
 export interface IntegrationState {
   status: IntegrationStatus;
   detail?: string;
+  lastEventAt?: number;
 }
 
 export interface SessionSnapshot {
@@ -135,6 +148,7 @@ export interface SessionSnapshot {
   createdAt: number;
   updatedAt: number;
   revision: number;
+  roleRevision: number;
   status: SessionStatus;
   operatorParticipantId?: string;
   participants: Participant[];
@@ -166,26 +180,51 @@ export interface WhiteboardSnapshot {
   id: string;
   updatedAt: number;
   revision: number;
+  roleRevision: number;
   status: SessionStatus;
-  graph: BusinessGraph;
+  graph: WhiteboardBusinessGraph;
   analysis: Pick<SessionSnapshot["analysis"], "status">;
   processing: Pick<SessionSnapshot["processing"], "paused">;
 }
 
 export const toWhiteboardSnapshot = (
-  snapshot: SessionSnapshot
+  snapshot: SessionSnapshot,
+  publicId = snapshot.id
 ): WhiteboardSnapshot => ({
-  id: snapshot.id,
+  id: publicId,
   updatedAt: snapshot.updatedAt,
   revision: snapshot.revision,
+  roleRevision: snapshot.roleRevision,
   status: snapshot.status,
-  graph: structuredClone(snapshot.graph),
+  graph: {
+    topic: {
+      id: snapshot.graph.topic.id,
+      label: snapshot.graph.topic.label
+    },
+    nodes: snapshot.graph.nodes.map(({ evidenceUtteranceIds: _, ...node }) => node),
+    edges: snapshot.graph.edges.map(({ evidenceUtteranceIds: _, ...edge }) => edge),
+    pains: snapshot.graph.pains.map(({ evidenceUtteranceIds: _, ...pain }) => pain),
+    contradictions: snapshot.graph.contradictions.map(
+      ({ evidenceUtteranceIds: _, ...contradiction }) => contradiction
+    ),
+    ...(snapshot.graph.suggestedQuestion
+      ? {
+          suggestedQuestion: {
+            text: snapshot.graph.suggestedQuestion.text
+          }
+        }
+      : {})
+  },
   analysis: { status: snapshot.analysis.status },
   processing: { paused: snapshot.processing.paused }
 });
 
 export const emptyBusinessGraph = (): BusinessGraph => ({
-  topic: { id: "discovery", label: "Business discovery" },
+  topic: {
+    id: "discovery",
+    label: "Business discovery",
+    evidenceUtteranceIds: []
+  },
   nodes: [],
   edges: [],
   pains: [],

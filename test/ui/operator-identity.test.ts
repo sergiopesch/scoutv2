@@ -14,10 +14,11 @@ describe("operator identity control", () => {
       name: "Live Architect",
       isBot: true
     },
+    { id: "departed", name: "Ari", present: false },
     { id: "operator-new", name: "Stephen", platformIdentity: "zoom:stephen" }
   ];
 
-  it("excludes the bot and collapses a stable participant rejoin", () => {
+  it("excludes bots and departed people and collapses a stable participant rejoin", () => {
     expect(humanParticipants(participants).map((participant) => participant.id))
       .toEqual(["operator-new", "client-1"]);
   });

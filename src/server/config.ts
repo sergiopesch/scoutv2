@@ -1,11 +1,22 @@
+import {
+  validateRecallApiBaseUrl,
+  validateRecallPublicBaseUrl
+} from "./recall/recall-validation.js";
+
 export interface AppConfig {
   port: number;
   host: string;
   publicBaseUrl?: string;
   analysisDelayMs: number;
   analysisRerunDelayMs: number;
+  analysisMaxBatchUtterances: number;
+  analysisMaxBatchBytes: number;
   maxAutomaticAnalysisTurnsPerSession: number;
   maxActiveSessions: number;
+  maxSseConnections: number;
+  maxSseConnectionsPerSession: number;
+  sessionRetentionMs: number;
+  shutdownGraceMs: number;
   allowDevIngest: boolean;
   codex: {
     binary: string;
@@ -18,7 +29,10 @@ export interface AppConfig {
     apiBaseUrl: string;
     workspaceVerificationSecret: string;
     statusWebhookSecret: string;
+    statusWebhookVerificationMode: "workspace" | "svix";
     outputMode: "screenshare" | "camera";
+    requestTimeoutMs: number;
+    maxRetries: number;
   };
 }
 
@@ -57,8 +71,6 @@ const parseMinimumInteger = (
   return parsed;
 };
 
-const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
-
 export const loadConfig = (
   environment: NodeJS.ProcessEnv = process.env
 ): AppConfig => {
@@ -81,6 +93,7 @@ export const loadConfig = (
     environment.RECALL_WORKSPACE_VERIFICATION_SECRET ??
     environment.RECALL_WEBHOOK_SECRET
   )?.trim();
+  const legacySvixSecret = environment.RECALL_SVIX_WEBHOOK_SECRET?.trim();
   const outputMode = environment.RECALL_OUTPUT_MODE?.trim() || "screenshare";
   if (!["screenshare", "camera"].includes(outputMode)) {
     throw new Error("RECALL_OUTPUT_MODE must be screenshare or camera.");
@@ -96,19 +109,31 @@ export const loadConfig = (
     port: parseInteger(environment.PORT, 3000, "PORT"),
     host: environment.HOST?.trim() || "127.0.0.1",
     publicBaseUrl: publicBaseUrl
-      ? stripTrailingSlash(publicBaseUrl)
+      ? validateRecallPublicBaseUrl(publicBaseUrl)
       : undefined,
     analysisDelayMs: parseMinimumInteger(
       environment.ANALYSIS_DELAY_MS,
-      500,
+      8_000,
       "ANALYSIS_DELAY_MS",
       100
     ),
     analysisRerunDelayMs: parseMinimumInteger(
       environment.ANALYSIS_RERUN_DELAY_MS,
-      250,
+      2_000,
       "ANALYSIS_RERUN_DELAY_MS",
       100
+    ),
+    analysisMaxBatchUtterances: parseMinimumInteger(
+      environment.ANALYSIS_MAX_BATCH_UTTERANCES,
+      40,
+      "ANALYSIS_MAX_BATCH_UTTERANCES",
+      1
+    ),
+    analysisMaxBatchBytes: parseMinimumInteger(
+      environment.ANALYSIS_MAX_BATCH_BYTES,
+      48_000,
+      "ANALYSIS_MAX_BATCH_BYTES",
+      1_024
     ),
     maxAutomaticAnalysisTurnsPerSession: parseMinimumInteger(
       environment.MAX_AUTOMATIC_ANALYSIS_TURNS_PER_SESSION,
@@ -122,6 +147,30 @@ export const loadConfig = (
       "MAX_ACTIVE_SESSIONS",
       1
     ),
+    maxSseConnections: parseMinimumInteger(
+      environment.MAX_SSE_CONNECTIONS,
+      128,
+      "MAX_SSE_CONNECTIONS",
+      1
+    ),
+    maxSseConnectionsPerSession: parseMinimumInteger(
+      environment.MAX_SSE_CONNECTIONS_PER_SESSION,
+      32,
+      "MAX_SSE_CONNECTIONS_PER_SESSION",
+      1
+    ),
+    sessionRetentionMs: parseMinimumInteger(
+      environment.SESSION_RETENTION_MS,
+      4 * 60 * 60 * 1_000,
+      "SESSION_RETENTION_MS",
+      60_000
+    ),
+    shutdownGraceMs: parseMinimumInteger(
+      environment.SHUTDOWN_GRACE_MS,
+      60_000,
+      "SHUTDOWN_GRACE_MS",
+      100
+    ),
     allowDevIngest: environment.SCOUT_ALLOW_DEV_INGEST === "true",
     codex: {
       binary: environment.CODEX_BINARY?.trim() || "codex",
@@ -132,15 +181,25 @@ export const loadConfig = (
       ? {
           region: recallRegion as RecallRegion,
           apiKey: recallApiKey,
-          apiBaseUrl: stripTrailingSlash(
+          apiBaseUrl: validateRecallApiBaseUrl(
             environment.RECALL_API_BASE_URL?.trim() ||
               `https://${recallRegion}.recall.ai/api/v1`
           ),
           workspaceVerificationSecret: workspaceVerificationSecret!,
-          statusWebhookSecret:
-            environment.RECALL_SVIX_WEBHOOK_SECRET?.trim() ||
-            workspaceVerificationSecret!,
-          outputMode: outputMode as "screenshare" | "camera"
+          statusWebhookSecret: legacySvixSecret || workspaceVerificationSecret!,
+          statusWebhookVerificationMode: legacySvixSecret ? "svix" : "workspace",
+          outputMode: outputMode as "screenshare" | "camera",
+          requestTimeoutMs: parseMinimumInteger(
+            environment.RECALL_REQUEST_TIMEOUT_MS,
+            10_000,
+            "RECALL_REQUEST_TIMEOUT_MS",
+            100
+          ),
+          maxRetries: parseInteger(
+            environment.RECALL_MAX_RETRIES,
+            3,
+            "RECALL_MAX_RETRIES"
+          )
         }
       : undefined
   };

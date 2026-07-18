@@ -76,17 +76,21 @@ trying to merge incremental graph patches.
 - `/operator/:sessionId` — attributed transcript, participants, integration
   health, revision state, suggested follow-up, and manual analysis control.
 - `/whiteboard/:sessionId` — presentation-safe workflow map for screen sharing.
-- `/events/:sessionId` — server-sent session snapshots consumed by both views.
+- `/events/:sessionId` — full operator session snapshots over SSE.
+- `/events/whiteboards/:sessionId` — presentation-safe whiteboard projections
+  over SSE, without transcript or integration internals.
 
 On the operator page, the builder selects **This is me** beside their Recall
 meeting identity. Scout stores that participant as the operator, treats the
 other human participants as clients, excludes the Live Architect bot from the
 selector, and includes the resolved role with each utterance sent for analysis.
-The selection can be corrected during the session.
+The selection can be corrected during the session. A correction invalidates the
+old graph and Codex thread, preserves the finalized transcript, and rebuilds a
+complete graph from that evidence under the corrected roles.
 
 ## Requirements
 
-- Node.js 22+
+- Node.js 22.23.1 and npm 10.9.8 (pinned by `.node-version` and `package.json`)
 - A locally authenticated `codex` CLI with `codex app-server` support
 - A Recall.ai API key and workspace verification secret
 - A stable public HTTPS URL forwarding to this server
@@ -114,12 +118,13 @@ PUBLIC_API_BASE_URL=https://YOUR_PUBLIC_HOST
 RECALL_REGION=us-west-2
 RECALL_API_KEY=...
 RECALL_WORKSPACE_VERIFICATION_SECRET=...
-RECALL_SVIX_WEBHOOK_SECRET=...
 ```
 
-`RECALL_SVIX_WEBHOOK_SECRET` is the signing secret for the dashboard bot-status
-webhook. Keep all secrets outside git; for the hackathon, store them in
-1Password Agent Env.
+Current Recall workspaces use `RECALL_WORKSPACE_VERIFICATION_SECRET` for both
+real-time and dashboard webhooks. Set `RECALL_SVIX_WEBHOOK_SECRET` only when an
+older dashboard webhook was explicitly provisioned with a separate legacy Svix
+secret. Keep all secrets outside git; for the hackathon, store them in 1Password
+Agent Env.
 
 Load the environment and start the service:
 
@@ -131,11 +136,24 @@ npm run dev
 ```
 
 Automatic analysis uses leading-edge batching: the first finalized utterance
-starts a non-resetting `ANALYSIS_DELAY_MS` timer (500 ms by default).
+starts a non-resetting `ANALYSIS_DELAY_MS` timer (8 seconds by default).
 Additional finals join that pending batch without postponing it. If more finals
 arrive while Codex is analyzing, the next pass starts after the shorter,
-non-resetting `ANALYSIS_RERUN_DELAY_MS` interval (250 ms by default). The
+non-resetting `ANALYSIS_RERUN_DELAY_MS` interval (2 seconds by default). Batches
+are bounded by both utterance count and serialized text bytes. The
 operator's **Analyze now** action bypasses an idle timer immediately.
+
+## Runtime readiness
+
+- `/livez` reports whether the HTTP process is accepting traffic.
+- `/readyz` verifies that the selected live or rehearsal mode is usable and
+  preflights Codex and Recall.
+- `/health` is a compatibility alias for `/readyz`.
+
+Live session creation returns `503` without allocating a session when required
+dependencies are unavailable. It returns `201` only after Recall accepts bot
+creation. See [the operations runbook](ops/README.md) for the supported
+single-replica deployment and graceful shutdown procedure.
 
 The operator transcript also displays Recall's interim
 `transcript.partial_data` while someone is speaking. Interim text is replaced
@@ -176,7 +194,26 @@ Recall credentials are ready:
 SCOUT_ALLOW_DEV_INGEST=true
 ```
 
-Create a session as above, then send a finalized utterance:
+Create a session as above, then provide both the builder and customer identities.
+The first finalized item can be the builder's question:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:3000/api/dev/sessions/SESSION_ID/utterances \
+  -H 'content-type: application/json' \
+  --data '{
+    "id":"demo-operator-1",
+    "sequence":1,
+    "participantId":"builder-1",
+    "participantName":"Scout operator",
+    "text":"How does the lead handoff work today?",
+    "startedAt":1,
+    "endedAt":5,
+    "finalized":true
+  }'
+```
+
+Then send the customer's finalized answer:
 
 ```bash
 curl -X POST \
@@ -184,23 +221,18 @@ curl -X POST \
   -H 'content-type: application/json' \
   --data '{
     "id":"demo-1",
-    "sequence":1,
+    "sequence":2,
     "participantId":"ceo-1",
     "participantName":"Maya, CEO",
     "text":"Sales exports leads from HubSpot to a spreadsheet, then Finance manually copies them into NetSuite.",
-    "startedAt":1721308800000,
-    "endedAt":1721308815000,
+    "startedAt":6,
+    "endedAt":21,
     "finalized":true
   }'
 ```
 
-Analysis runs after the bounded leading-edge delay, or immediately with:
-
-```bash
-curl -X POST http://127.0.0.1:3000/api/sessions/SESSION_ID/analyze
-```
-
-The operator identity can also be selected directly through the session API:
+Select the builder as operator. Scout assigns the other human identity as the
+customer and safely replays the pending finals:
 
 ```bash
 curl -X PUT \
@@ -209,14 +241,25 @@ curl -X PUT \
   --data '{"participantId":"builder-1"}'
 ```
 
+Analysis then runs after the bounded leading-edge delay, or immediately with:
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/sessions/SESSION_ID/analyze
+```
+
 ## Verification
 
 ```bash
 npm test
 npm run typecheck
 npm run build
+git diff --check
 ```
+
+`npm run check` runs the same local sequence. CI also starts the built artifact
+and exercises `/livez` before accepting a change.
 
 The test suite covers snapshot coordination, runtime routing, Recall
 normalization and signature checks, Codex JSON-RPC/structured output handling,
-session storage, and deterministic Mermaid generation.
+session storage, deterministic Mermaid generation, role correction, dependency
+failure recovery, SSE draining, and terminal meeting interleavings.

@@ -1,0 +1,15 @@
+{
+  "event": "bot.recording_permission_denied",
+  "data": {
+    "data": {
+      "code": "recording_permission_denied",
+      "sub_code": "zoom_local_recording_disabled",
+      "message": "The host account has local recording disabled.",
+      "updated_at": "2026-07-18T10:05:08.000Z"
+    },
+    "bot": {
+      "id": "bot-demo",
+      "metadata": { "scout_correlation_id": "correlation-token-demo" }
+    }
+  }
+}

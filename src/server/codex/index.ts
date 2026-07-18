@@ -1,8 +1,12 @@
 export {
   AppServerRpcError,
+  AppServerRequestTimeoutError,
   CodexAppServerClient,
   type AppServerClientOptions,
   type AppServerProcess,
+  type CodexModelCapability,
+  type CodexPreflightOptions,
+  type CodexPreflightResult,
   type RpcNotification
 } from "./app-server-client.js";
 export {

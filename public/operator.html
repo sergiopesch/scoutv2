@@ -39,6 +39,7 @@
             id="processing-button"
             type="button"
             aria-pressed="false"
+            disabled
           >
             Pause live processing
           </button>
@@ -106,10 +107,10 @@
           <p class="inline-error" id="operator-error" role="alert" hidden></p>
         </div>
         <div class="operator-actions">
-          <button class="analyze-button" id="analyze-button" type="button">
-            Analyze now
+          <button class="analyze-button" id="analyze-button" type="button" disabled>
+            Loading meeting…
           </button>
-          <button class="reset-button" id="reset-button" type="button">
+          <button class="reset-button" id="reset-button" type="button" disabled>
             Clear conversation
           </button>
           <p class="action-note" id="action-note">

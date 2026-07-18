@@ -40,5 +40,6 @@ describe("formatClock", () => {
   it("formats Recall relative seconds as meeting elapsed time", () => {
     expect(formatClock(12.25)).toBe("00:00:12");
     expect(formatClock(3_661)).toBe("01:01:01");
+    expect(formatClock(9e18)).toBe("—");
   });
 });

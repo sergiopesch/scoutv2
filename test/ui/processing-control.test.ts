@@ -27,4 +27,25 @@ describe("processing control", () => {
       processingControlView({ paused: true }, true, true).buttonText
     ).toBe("Pausing live processing…");
   });
+
+  it("can unlock pending final analysis after a paused meeting ends", () => {
+    expect(
+      processingControlView({ paused: true }, false, false, "ended")
+    ).toMatchObject({
+      disabled: false,
+      statusText: "Ended",
+      buttonText: "Enable final analysis"
+    });
+    expect(
+      processingControlView({ paused: false }, false, true, "ended")
+    ).toMatchObject({
+      disabled: true,
+      buttonText: "Final processing enabled"
+    });
+  });
+
+  it("does not offer processing controls for a failed session", () => {
+    expect(processingControlView({ paused: false }, false, true, "error"))
+      .toMatchObject({ disabled: true, statusText: "Unavailable" });
+  });
 });

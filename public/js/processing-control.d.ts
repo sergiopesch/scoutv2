@@ -4,7 +4,8 @@ export interface ProcessingControlState {
 
 export interface ProcessingControlView {
   paused: boolean;
-  statusText: "Paused" | "Live";
+  disabled: boolean;
+  statusText: "Paused" | "Live" | "Ended" | "Unavailable";
   buttonText: string;
   note: string;
 }
@@ -12,5 +13,6 @@ export interface ProcessingControlView {
 export function processingControlView(
   processing?: ProcessingControlState,
   submitting?: boolean,
-  requestedPaused?: boolean
+  requestedPaused?: boolean,
+  sessionStatus?: string
 ): ProcessingControlView;

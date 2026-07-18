@@ -7,10 +7,13 @@ import {
   type ParticipantRole,
   type SessionSnapshot,
   type SessionStatus,
-  type Utterance
+  type Utterance,
+  type WhiteboardSnapshot,
+  toWhiteboardSnapshot
 } from "../shared/types.js";
 
 type Listener = (snapshot: SessionSnapshot) => void;
+type WhiteboardListener = (snapshot: WhiteboardSnapshot) => void;
 
 export type SessionEvent =
   | {
@@ -89,6 +92,7 @@ export type SessionEvent =
       sequence: number;
       occurredAt: number;
       type: "session.context-reset";
+      roleRevision: number;
     };
 
 type NewSessionEvent = SessionEvent extends infer Event
@@ -97,171 +101,233 @@ type NewSessionEvent = SessionEvent extends infer Event
     : never
   : never;
 
+interface ProjectionState {
+  selectedOperatorPlatformIdentity?: string;
+}
+
+const newProjection = (
+  created: Extract<SessionEvent, { type: "session.created" }>
+): SessionSnapshot => ({
+  id: created.sessionId,
+  meetingUrl: created.meetingUrl,
+  createdAt: created.occurredAt,
+  updatedAt: created.occurredAt,
+  revision: 0,
+  roleRevision: 0,
+  status: "creating",
+  operatorParticipantId: undefined,
+  participants: [],
+  utterances: [],
+  graph: emptyBusinessGraph(),
+  recall: { status: "idle" },
+  codex: { status: "idle" },
+  processing: {
+    paused: false,
+    changedAt: created.occurredAt,
+    incomingTranscriptPolicy: "discard"
+  },
+  analysis: { status: "idle", pendingUtteranceCount: 0 }
+});
+
+const projectionStateFor = (snapshot: SessionSnapshot): ProjectionState => ({
+  selectedOperatorPlatformIdentity: snapshot.participants.find(
+    (participant) => participant.id === snapshot.operatorParticipantId
+  )?.platformIdentity
+});
+
+const resolveParticipantRoles = (
+  snapshot: SessionSnapshot,
+  state: ProjectionState
+): void => {
+  if (snapshot.operatorParticipantId === undefined) return;
+  snapshot.participants = snapshot.participants.map((participant) => {
+    if (participant.isBot) {
+      const { role: _role, ...bot } = participant;
+      return bot;
+    }
+    const isOperator =
+      participant.id === snapshot.operatorParticipantId ||
+      (state.selectedOperatorPlatformIdentity !== undefined &&
+        participant.platformIdentity === state.selectedOperatorPlatformIdentity);
+    return { ...participant, role: isOperator ? "operator" : "customer" };
+  });
+};
+
+const invalidateAnalysisForRoleChange = (snapshot: SessionSnapshot): void => {
+  snapshot.roleRevision += 1;
+  snapshot.graph = emptyBusinessGraph();
+  snapshot.revision = 0;
+  snapshot.codex = { status: "idle" };
+  snapshot.analysis = {
+    status: "idle",
+    pendingUtteranceCount: snapshot.utterances.filter(
+      (utterance) => utterance.finalized
+    ).length
+  };
+  if (snapshot.status === "analyzing") snapshot.status = "listening";
+};
+
+const applySessionEvent = (
+  snapshot: SessionSnapshot,
+  event: Exclude<SessionEvent, { type: "session.created" }>,
+  state: ProjectionState
+): void => {
+  snapshot.updatedAt = event.occurredAt;
+  switch (event.type) {
+    case "session.status-set":
+      snapshot.status = event.status;
+      break;
+    case "participant.upserted": {
+      const index = snapshot.participants.findIndex(
+        (participant) => participant.id === event.participant.id
+      );
+      if (index === -1) snapshot.participants.push(event.participant);
+      else {
+        const existing = snapshot.participants[index];
+        snapshot.participants[index] = {
+          ...existing,
+          ...event.participant,
+          ...(existing?.role && !event.participant.role
+            ? { role: existing.role }
+            : {})
+        };
+      }
+      if (
+        state.selectedOperatorPlatformIdentity &&
+        event.participant.platformIdentity ===
+          state.selectedOperatorPlatformIdentity
+      ) {
+        snapshot.operatorParticipantId = event.participant.id;
+      }
+      if (
+        event.participant.id === snapshot.operatorParticipantId &&
+        event.participant.platformIdentity
+      ) {
+        state.selectedOperatorPlatformIdentity =
+          event.participant.platformIdentity;
+      }
+      break;
+    }
+    case "participant.role-set": {
+      const participant = snapshot.participants.find(
+        (item) => item.id === event.participantId
+      );
+      if (!participant) {
+        throw new Error(
+          `Cannot set a role for unknown participant ${event.participantId}.`
+        );
+      }
+      if (participant.role !== event.role) {
+        if (event.role) participant.role = event.role;
+        else delete participant.role;
+        invalidateAnalysisForRoleChange(snapshot);
+      }
+      break;
+    }
+    case "operator.selected": {
+      const previousIdentity =
+        state.selectedOperatorPlatformIdentity ?? snapshot.operatorParticipantId;
+      const nextIdentity = event.platformIdentity ?? event.participantId;
+      if (previousIdentity !== nextIdentity) {
+        invalidateAnalysisForRoleChange(snapshot);
+      }
+      snapshot.operatorParticipantId = event.participantId;
+      state.selectedOperatorPlatformIdentity = event.platformIdentity;
+      break;
+    }
+    case "utterance.recorded": {
+      if (event.utterance.finalized) {
+        snapshot.utterances = snapshot.utterances.filter(
+          (utterance) =>
+            utterance.finalized ||
+            utterance.participantId !== event.utterance.participantId ||
+            utterance.startedAt < event.utterance.startedAt - 0.5 ||
+            utterance.startedAt > event.utterance.endedAt + 0.5
+        );
+      } else if (
+        snapshot.utterances.some(
+          (utterance) =>
+            utterance.finalized &&
+            utterance.participantId === event.utterance.participantId &&
+            event.utterance.startedAt >= utterance.startedAt - 0.5 &&
+            event.utterance.startedAt <= utterance.endedAt + 0.5
+        )
+      ) {
+        break;
+      }
+      const index = snapshot.utterances.findIndex(
+        (utterance) => utterance.id === event.utterance.id
+      );
+      if (index === -1) {
+        snapshot.utterances.push(event.utterance);
+        if (event.utterance.finalized) {
+          snapshot.analysis.pendingUtteranceCount += 1;
+        }
+      } else {
+        snapshot.utterances[index] = event.utterance;
+      }
+      snapshot.utterances.sort((left, right) => left.sequence - right.sequence);
+      break;
+    }
+    case "recall.state-set":
+      snapshot.recall = event.state;
+      break;
+    case "codex.state-set":
+      snapshot.codex = event.state;
+      break;
+    case "analysis.state-set":
+      snapshot.analysis = event.analysis;
+      break;
+    case "processing.paused-set":
+      snapshot.processing = {
+        paused: event.paused,
+        changedAt: event.occurredAt,
+        incomingTranscriptPolicy: "discard"
+      };
+      break;
+    case "graph.accepted":
+      snapshot.graph = event.graph;
+      snapshot.revision += 1;
+      snapshot.analysis = {
+        ...snapshot.analysis,
+        status: "idle",
+        pendingUtteranceCount: 0,
+        lastCompletedAt: event.occurredAt,
+        lastError: undefined,
+        blockedReason: undefined
+      };
+      break;
+    case "session.context-reset":
+      // Resetting the conversation must not rewind the role-generation
+      // barrier. Older SSE snapshots and in-flight Codex turns are ordered
+      // against this monotonic value.
+      snapshot.roleRevision = Math.max(
+        snapshot.roleRevision,
+        event.roleRevision
+      );
+      snapshot.utterances = [];
+      snapshot.graph = emptyBusinessGraph();
+      snapshot.revision = 0;
+      snapshot.codex = { status: "idle" };
+      snapshot.analysis = { status: "idle", pendingUtteranceCount: 0 };
+      break;
+  }
+  resolveParticipantRoles(snapshot, state);
+};
+
 const projectSession = (events: SessionEvent[]): SessionSnapshot => {
   const created = events[0];
   if (!created || created.type !== "session.created") {
     throw new Error("Session event log must begin with session.created.");
   }
-
-  const snapshot: SessionSnapshot = {
-    id: created.sessionId,
-    meetingUrl: created.meetingUrl,
-    createdAt: created.occurredAt,
-    updatedAt: created.occurredAt,
-    revision: 0,
-    status: "creating",
-    operatorParticipantId: undefined,
-    participants: [],
-    utterances: [],
-    graph: emptyBusinessGraph(),
-    recall: { status: "idle" },
-    codex: { status: "idle" },
-    processing: {
-      paused: false,
-      changedAt: created.occurredAt,
-      incomingTranscriptPolicy: "discard"
-    },
-    analysis: { status: "idle", pendingUtteranceCount: 0 }
-  };
-
-  let selectedOperatorPlatformIdentity: string | undefined;
+  const snapshot = newProjection(created);
+  const state: ProjectionState = {};
   for (const event of events.slice(1)) {
-    snapshot.updatedAt = event.occurredAt;
-    switch (event.type) {
-      case "session.status-set":
-        snapshot.status = event.status;
-        break;
-      case "participant.upserted": {
-        const index = snapshot.participants.findIndex(
-          (participant) => participant.id === event.participant.id
-        );
-        if (index === -1) snapshot.participants.push(event.participant);
-        else {
-          const existing = snapshot.participants[index];
-          snapshot.participants[index] = {
-            ...existing,
-            ...event.participant,
-            ...(existing?.role && !event.participant.role
-              ? { role: existing.role }
-              : {})
-          };
-        }
-        if (
-          selectedOperatorPlatformIdentity &&
-          event.participant.platformIdentity === selectedOperatorPlatformIdentity
-        ) {
-          snapshot.operatorParticipantId = event.participant.id;
-        }
-        break;
-      }
-      case "participant.role-set": {
-        const participant = snapshot.participants.find(
-          (item) => item.id === event.participantId
-        );
-        if (!participant) {
-          throw new Error(
-            `Cannot set a role for unknown participant ${event.participantId}.`
-          );
-        }
-        if (event.role) participant.role = event.role;
-        else delete participant.role;
-        break;
-      }
-      case "operator.selected":
-        snapshot.operatorParticipantId = event.participantId;
-        selectedOperatorPlatformIdentity = event.platformIdentity;
-        break;
-      case "utterance.recorded": {
-        if (event.utterance.finalized) {
-          snapshot.utterances = snapshot.utterances.filter(
-            (utterance) =>
-              utterance.finalized ||
-              utterance.participantId !== event.utterance.participantId ||
-              utterance.startedAt < event.utterance.startedAt - 0.5 ||
-              utterance.startedAt > event.utterance.endedAt + 0.5
-          );
-        } else if (
-          snapshot.utterances.some(
-            (utterance) =>
-              utterance.finalized &&
-              utterance.participantId === event.utterance.participantId &&
-              event.utterance.startedAt >= utterance.startedAt - 0.5 &&
-              event.utterance.startedAt <= utterance.endedAt + 0.5
-          )
-        ) {
-          break;
-        }
-        const index = snapshot.utterances.findIndex(
-          (utterance) => utterance.id === event.utterance.id
-        );
-        if (index === -1) {
-          snapshot.utterances.push(event.utterance);
-          if (event.utterance.finalized) {
-            snapshot.analysis.pendingUtteranceCount += 1;
-          }
-        } else {
-          snapshot.utterances[index] = event.utterance;
-        }
-        snapshot.utterances.sort((left, right) => left.sequence - right.sequence);
-        break;
-      }
-      case "recall.state-set":
-        snapshot.recall = event.state;
-        break;
-      case "codex.state-set":
-        snapshot.codex = event.state;
-        break;
-      case "analysis.state-set":
-        snapshot.analysis = event.analysis;
-        break;
-      case "processing.paused-set":
-        snapshot.processing = {
-          paused: event.paused,
-          changedAt: event.occurredAt,
-          incomingTranscriptPolicy: "discard"
-        };
-        break;
-      case "graph.accepted":
-        snapshot.graph = event.graph;
-        snapshot.revision += 1;
-        snapshot.analysis = {
-          ...snapshot.analysis,
-          status: "idle",
-          pendingUtteranceCount: 0,
-          lastCompletedAt: event.occurredAt,
-          lastError: undefined,
-          blockedReason: undefined
-        };
-        break;
-      case "session.context-reset":
-        snapshot.utterances = [];
-        snapshot.graph = emptyBusinessGraph();
-        snapshot.revision = 0;
-        snapshot.codex = { status: "idle" };
-        snapshot.analysis = { status: "idle", pendingUtteranceCount: 0 };
-        break;
-      case "session.created":
-        throw new Error("session.created may only be the first event.");
+    if (event.type === "session.created") {
+      throw new Error("session.created may only be the first event.");
     }
+    applySessionEvent(snapshot, event, state);
   }
-
-  if (snapshot.operatorParticipantId !== undefined) {
-    snapshot.participants = snapshot.participants.map((participant) => {
-      if (participant.isBot) {
-        const { role: _role, ...bot } = participant;
-        return bot;
-      }
-      const isOperator =
-        participant.id === snapshot.operatorParticipantId ||
-        (selectedOperatorPlatformIdentity !== undefined &&
-          participant.platformIdentity === selectedOperatorPlatformIdentity);
-      return {
-        ...participant,
-        role: isOperator ? "operator" : "customer"
-      };
-    });
-  }
-
   return snapshot;
 };
 
@@ -269,6 +335,10 @@ export class SessionStore {
   private readonly eventLogs = new Map<string, SessionEvent[]>();
   private readonly projections = new Map<string, SessionSnapshot>();
   private readonly listeners = new Map<string, Set<Listener>>();
+  private readonly whiteboardListeners = new Map<
+    string,
+    Set<WhiteboardListener>
+  >();
 
   create(meetingUrl: string, id: string = randomUUID()): SessionSnapshot {
     if (this.eventLogs.has(id)) throw new Error(`Session already exists: ${id}`);
@@ -323,7 +393,8 @@ export class SessionStore {
   }
 
   selectOperator(id: string, participantId: string): SessionSnapshot {
-    const participant = this.getRequired(id).participants.find(
+    const current = this.getRequired(id);
+    const participant = current.participants.find(
       (candidate) => candidate.id === participantId
     );
     if (!participant) {
@@ -332,6 +403,13 @@ export class SessionStore {
     if (participant.isBot) {
       throw new Error("The Scout meeting bot cannot be selected as operator.");
     }
+    const currentOperator = current.participants.find(
+      (candidate) => candidate.id === current.operatorParticipantId
+    );
+    const currentIdentity =
+      currentOperator?.platformIdentity ?? current.operatorParticipantId;
+    const nextIdentity = participant.platformIdentity ?? participant.id;
+    if (currentIdentity === nextIdentity) return current;
     return this.append(id, {
       type: "operator.selected",
       participantId,
@@ -345,8 +423,17 @@ export class SessionStore {
     role?: ParticipantRole
   ): SessionSnapshot {
     const snapshot = this.getRequired(id);
-    if (!snapshot.participants.some((participant) => participant.id === participantId)) {
+    const participant = snapshot.participants.find(
+      (candidate) => candidate.id === participantId
+    );
+    if (!participant) {
       throw new Error(`Unknown participant: ${participantId}`);
+    }
+    if (snapshot.operatorParticipantId) {
+      if (role === participant.role) return snapshot;
+      throw new Error(
+        "Participant roles are controlled by operator self-selection; select the operator instead."
+      );
     }
     return this.append(id, { type: "participant.role-set", participantId, role });
   }
@@ -396,7 +483,7 @@ export class SessionStore {
       throw new Error(`Session event log must begin with session.created: ${id}`);
     }
 
-    const occurredAt = Date.now();
+    const occurredAt = Math.max(Date.now(), current.updatedAt + 1);
     const retainedEvents: SessionEvent[] = [
       structuredClone(created),
       {
@@ -441,7 +528,8 @@ export class SessionStore {
     retainedEvents.push({
       sequence: retainedEvents.length,
       occurredAt,
-      type: "session.context-reset"
+      type: "session.context-reset",
+      roleRevision: current.roleRevision
     });
 
     this.eventLogs.set(id, structuredClone(retainedEvents));
@@ -455,26 +543,105 @@ export class SessionStore {
     const listeners = this.listeners.get(id) ?? new Set<Listener>();
     listeners.add(listener);
     this.listeners.set(id, listeners);
-    listener(this.getRequired(id));
+    try {
+      listener(this.getRequired(id));
+    } catch (error) {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.listeners.delete(id);
+      throw error;
+    }
     return () => {
       listeners.delete(listener);
       if (listeners.size === 0) this.listeners.delete(id);
     };
   }
 
+  subscribeWhiteboard(id: string, listener: WhiteboardListener): () => void {
+    if (!this.eventLogs.has(id)) throw new Error(`Unknown session: ${id}`);
+    const listeners =
+      this.whiteboardListeners.get(id) ?? new Set<WhiteboardListener>();
+    listeners.add(listener);
+    this.whiteboardListeners.set(id, listeners);
+    try {
+      listener(toWhiteboardSnapshot(this.projections.get(id)!));
+    } catch (error) {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.whiteboardListeners.delete(id);
+      throw error;
+    }
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.whiteboardListeners.delete(id);
+    };
+  }
+
+  delete(id: string): boolean {
+    const existed = this.eventLogs.delete(id);
+    this.projections.delete(id);
+    this.listeners.delete(id);
+    this.whiteboardListeners.delete(id);
+    return existed;
+  }
+
   private append(id: string, event: NewSessionEvent): SessionSnapshot {
     const events = this.eventLogs.get(id);
     if (!events) throw new Error(`Unknown session: ${id}`);
-    events.push(
-      structuredClone({
-        ...event,
-        sequence: events.length,
-        occurredAt: Date.now()
-      }) as SessionEvent
-    );
-    this.rebuildProjection(id);
+    if (event.type === "utterance.recorded") {
+      this.compactPartialHistory(events, event.utterance);
+    }
+    const storedEvent = structuredClone({
+      ...event,
+      sequence: events.length,
+      occurredAt: Math.max(
+        Date.now(),
+        (this.projections.get(id)?.updatedAt ?? events.at(-1)?.occurredAt ?? 0) + 1
+      )
+    }) as SessionEvent;
+    if (storedEvent.type === "session.created") {
+      throw new Error("session.created may only be the first event.");
+    }
+    events.push(storedEvent);
+    const current = this.projections.get(id);
+    if (current) {
+      // Projections are never exposed directly: reads and listener emissions
+      // clone them. Mutating the canonical projection here avoids copying an
+      // ever-growing transcript once merely to apply one event.
+      applySessionEvent(current, storedEvent, projectionStateFor(current));
+    } else {
+      this.rebuildProjection(id);
+    }
     this.emit(id);
     return this.getRequired(id);
+  }
+
+  private compactPartialHistory(
+    events: SessionEvent[],
+    utterance: Utterance
+  ): void {
+    const retained = events.filter((candidate) => {
+      if (
+        candidate.type !== "utterance.recorded" ||
+        candidate.utterance.finalized
+      ) {
+        return true;
+      }
+      const partial = candidate.utterance;
+      if (!utterance.finalized) return partial.id !== utterance.id;
+      return (
+        partial.participantId !== utterance.participantId ||
+        partial.startedAt < utterance.startedAt - 0.5 ||
+        partial.startedAt > utterance.endedAt + 0.5
+      );
+    });
+    if (retained.length === events.length) return;
+    events.splice(
+      0,
+      events.length,
+      ...retained.map((candidate, sequence) => ({
+        ...candidate,
+        sequence
+      }))
+    );
   }
 
   private rebuildProjection(id: string): void {
@@ -487,7 +654,24 @@ export class SessionStore {
     const snapshot = this.projections.get(id);
     if (!snapshot) return;
     for (const listener of this.listeners.get(id) ?? []) {
-      listener(structuredClone(snapshot));
+      try {
+        listener(structuredClone(snapshot));
+      } catch {
+        this.listeners.get(id)?.delete(listener);
+      }
     }
+    const whiteboardListeners = this.whiteboardListeners.get(id);
+    if (whiteboardListeners?.size) {
+      const whiteboard = toWhiteboardSnapshot(snapshot);
+      for (const listener of whiteboardListeners) {
+        try {
+          listener(structuredClone(whiteboard));
+        } catch {
+          whiteboardListeners.delete(listener);
+        }
+      }
+      if (whiteboardListeners.size === 0) this.whiteboardListeners.delete(id);
+    }
+    if (this.listeners.get(id)?.size === 0) this.listeners.delete(id);
   }
 }

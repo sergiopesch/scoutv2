@@ -2,12 +2,42 @@ import { describe, expect, it } from "vitest";
 import { SessionStore } from "../src/server/session-store.js";
 
 describe("SessionStore", () => {
+  it("removes failing subscribers without interrupting canonical updates or peers", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-listeners");
+
+    expect(() =>
+      store.subscribe(session.id, () => {
+        throw new Error("initial listener failed");
+      })
+    ).toThrow("initial listener failed");
+
+    let failingCalls = 0;
+    store.subscribe(session.id, () => {
+      failingCalls += 1;
+      if (failingCalls > 1) throw new Error("live listener failed");
+    });
+    const observed: string[] = [];
+    store.subscribe(session.id, (snapshot) => observed.push(snapshot.status));
+
+    expect(() => store.setStatus(session.id, "listening")).not.toThrow();
+    store.setStatus(session.id, "ended");
+
+    expect(store.getRequired(session.id).status).toBe("ended");
+    expect(failingCalls).toBe(2);
+    expect(observed).toEqual(["creating", "listening", "ended"]);
+  });
+
   it("atomically replaces the accepted graph and increments the revision", () => {
     const store = new SessionStore();
     const session = store.create("https://zoom.example/test", "session-1");
     const graph = {
       ...session.graph,
-      topic: { id: "sales", label: "Sales workflow" }
+      topic: {
+        id: "sales",
+        label: "Sales workflow",
+        evidenceUtteranceIds: ["test-evidence"]
+      }
     };
 
     const updated = store.acceptGraph(session.id, graph);
@@ -104,6 +134,58 @@ describe("SessionStore", () => {
     expect(store.rebuild(session.id)).toEqual(latePartial);
   });
 
+  it("compacts superseded partial history and projects whiteboard updates without transcripts", () => {
+    const store = new SessionStore();
+    const session = store.create(
+      "https://zoom.example/test",
+      "session-partial-compaction"
+    );
+    for (let index = 0; index < 2_000; index += 1) {
+      store.appendUtterance(session.id, {
+        id: "transcript:person-1:1000:partial",
+        sequence: 1_000,
+        participantId: "person-1",
+        participantName: "Alex",
+        text: `Partial update ${index}`,
+        startedAt: 1,
+        endedAt: 1.5,
+        finalized: false
+      });
+    }
+    expect(
+      store
+        .getEvents(session.id)
+        .filter((event) => event.type === "utterance.recorded")
+    ).toHaveLength(1);
+
+    let whiteboardPayload: unknown;
+    const unsubscribe = store.subscribeWhiteboard(session.id, (snapshot) => {
+      whiteboardPayload = snapshot;
+    });
+    store.appendUtterance(session.id, {
+      id: "transcript:person-1:1000:2000:final",
+      sequence: 1_000,
+      participantId: "person-1",
+      participantName: "Alex",
+      text: "The finalized attributed utterance.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+    unsubscribe();
+
+    expect(
+      store
+        .getEvents(session.id)
+        .filter(
+          (event) =>
+            event.type === "utterance.recorded" && !event.utterance.finalized
+        )
+    ).toHaveLength(0);
+    expect(whiteboardPayload).not.toHaveProperty("utterances");
+    expect(store.rebuild(session.id)).toEqual(store.getRequired(session.id));
+  });
+
   it("persists participant roles without letting later Recall updates erase them", () => {
     const store = new SessionStore();
     const session = store.create("https://zoom.example/test", "session-roles");
@@ -178,7 +260,11 @@ describe("SessionStore", () => {
     store.setProcessingPaused(session.id, true);
     store.acceptGraph(session.id, {
       ...session.graph,
-      topic: { id: "billing", label: "Billing workflow" },
+      topic: {
+        id: "billing",
+        label: "Billing workflow",
+        evidenceUtteranceIds: ["utt-1"]
+      },
       suggestedQuestion: {
         text: "Who owns this?",
         evidenceUtteranceIds: ["utt-1"]
@@ -224,6 +310,27 @@ describe("SessionStore", () => {
     expect(store.getEvents(session.id).at(-1)?.type).toBe(
       "session.context-reset"
     );
+  });
+
+  it("preserves the monotonic role revision across context resets and rebuilds", () => {
+    const store = new SessionStore();
+    const session = store.create(
+      "https://zoom.example/test",
+      "session-role-reset"
+    );
+    for (const id of ["person-1", "person-2", "person-3"]) {
+      store.upsertParticipant(session.id, { id, name: id });
+    }
+
+    expect(store.selectOperator(session.id, "person-1").roleRevision).toBe(1);
+    const corrected = store.selectOperator(session.id, "person-2");
+    expect(corrected.roleRevision).toBe(2);
+
+    const reset = store.resetContext(session.id);
+    expect(reset.roleRevision).toBe(2);
+    expect(reset.updatedAt).toBeGreaterThan(corrected.updatedAt);
+    expect(store.rebuild(session.id).roleRevision).toBe(2);
+    expect(store.selectOperator(session.id, "person-3").roleRevision).toBe(3);
   });
 
   it("assigns operator and client roles explicitly and follows a stable rejoin identity", () => {
@@ -277,5 +384,73 @@ describe("SessionStore", () => {
         .map((participant) => participant.id)
     ).toEqual(["operator-old", "operator-new"]);
     expect(store.rebuild(session.id)).toEqual(rejoined);
+  });
+
+  it("learns a stable identity after selection and follows a later provider rejoin", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-late-identity");
+    store.upsertParticipant(session.id, { id: "operator-old", name: "Stephen" });
+    store.selectOperator(session.id, "operator-old");
+    store.upsertParticipant(session.id, {
+      id: "operator-old",
+      name: "Stephen",
+      platformIdentity: "zoom:stable-stephen"
+    });
+    const rejoined = store.upsertParticipant(session.id, {
+      id: "operator-new",
+      name: "Stephen",
+      platformIdentity: "zoom:stable-stephen",
+      present: true
+    });
+
+    expect(rejoined.operatorParticipantId).toBe("operator-new");
+    expect(store.rebuild(session.id)).toEqual(rejoined);
+  });
+
+  it("invalidates a graph but preserves finalized evidence when roles change", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-role-change");
+    store.upsertParticipant(session.id, { id: "person-1", name: "Morgan" });
+    store.upsertParticipant(session.id, { id: "person-2", name: "Taylor" });
+    store.selectOperator(session.id, "person-1");
+    store.appendUtterance(session.id, {
+      id: "utt-1",
+      sequence: 1,
+      participantId: "person-2",
+      participantName: "Taylor",
+      text: "We reconcile invoices each Friday.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+    store.setCodex(session.id, { status: "connected", threadId: "thread-1" });
+    store.acceptGraph(session.id, {
+      ...session.graph,
+      topic: {
+        id: "billing",
+        label: "Billing",
+        evidenceUtteranceIds: ["utt-1"]
+      },
+      nodes: [
+        {
+          id: "finance",
+          kind: "team",
+          label: "Finance",
+          state: "current",
+          confidence: 1,
+          evidenceUtteranceIds: ["utt-1"]
+        }
+      ]
+    });
+
+    const corrected = store.selectOperator(session.id, "person-2");
+
+    expect(corrected.roleRevision).toBeGreaterThan(session.roleRevision);
+    expect(corrected.revision).toBe(0);
+    expect(corrected.graph.nodes).toEqual([]);
+    expect(corrected.utterances.map((utterance) => utterance.id)).toEqual(["utt-1"]);
+    expect(corrected.analysis.pendingUtteranceCount).toBe(1);
+    expect(corrected.codex.status).toBe("idle");
+    expect(store.rebuild(session.id)).toEqual(corrected);
   });
 });

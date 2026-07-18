@@ -1,0 +1,19 @@
+scout.example.com {
+	encode zstd gzip
+
+	@recall_webhook {
+		method POST
+		path /webhooks/recall/*
+	}
+	reverse_proxy @recall_webhook 127.0.0.1:3000
+
+	@whiteboard {
+		method GET
+		path /whiteboard/* /events/whiteboards/* /api/whiteboards/* /whiteboard.html /js/* /styles.css /vendor/mermaid/*
+	}
+	reverse_proxy @whiteboard 127.0.0.1:3000 {
+		flush_interval -1
+	}
+
+	respond 404
+}

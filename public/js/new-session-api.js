@@ -18,13 +18,71 @@ export function validateMeetingUrl(value) {
   }
 }
 
-const isSessionResponse = (value) =>
+const capabilityId = /^[A-Za-z0-9_-]{16,128}$/;
+
+const isSessionResponse = (value) => {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    typeof value.sessionId !== "string" ||
+    !capabilityId.test(value.sessionId) ||
+    (value.mode !== "live" && value.mode !== "rehearsal")
+  ) {
+    return false;
+  }
+  if (value.operatorUrl !== `/operator/${value.sessionId}`) return false;
+  if (typeof value.whiteboardUrl !== "string") return false;
+  const whiteboardMatch = value.whiteboardUrl.match(
+    /^\/whiteboard\/([A-Za-z0-9_-]{16,128})$/
+  );
+  return Boolean(
+    whiteboardMatch?.[1] && whiteboardMatch[1] !== value.sessionId
+  );
+};
+
+const readinessModes = new Set(["live", "rehearsal", "unavailable"]);
+
+const dependencyState = (value) => ({
+  ready: value?.ready === true,
+  detail:
+    typeof value?.detail === "string" && value.detail.trim()
+      ? value.detail.trim()
+      : undefined
+});
+
+const isReadinessResponse = (value) =>
   value &&
   typeof value === "object" &&
-  typeof value.operatorUrl === "string" &&
-  value.operatorUrl.startsWith("/") &&
-  typeof value.whiteboardUrl === "string" &&
-  value.whiteboardUrl.startsWith("/");
+  typeof value.ok === "boolean" &&
+  readinessModes.has(value.mode) &&
+  typeof value.codex?.ready === "boolean" &&
+  typeof value.recall?.ready === "boolean";
+
+export async function loadReadiness(fetchImpl = fetch) {
+  const response = await fetchImpl("/readyz", {
+    headers: { Accept: "application/json" }
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!isReadinessResponse(result)) {
+    throw new Error(
+      response.ok
+        ? "Scout returned an unreadable readiness response."
+        : `Scout readiness could not be checked (${response.status}).`
+    );
+  }
+  const codex = dependencyState(result.codex);
+  const recall = dependencyState(result.recall);
+  return {
+    ok:
+      result.ok &&
+      result.mode !== "unavailable" &&
+      codex.ready &&
+      recall.ready,
+    mode: result.mode,
+    codex,
+    recall
+  };
+}
 
 export async function createSession(meetingUrl, fetchImpl = fetch) {
   const response = await fetchImpl("/api/sessions", {

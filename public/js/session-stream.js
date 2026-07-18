@@ -72,9 +72,15 @@ export function formatClock(timestamp) {
       .map((part) => String(part).padStart(2, "0"))
       .join(":");
   }
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(timestamp));
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return "—";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    }).format(date);
+  } catch {
+    return "—";
+  }
 }

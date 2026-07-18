@@ -4,6 +4,7 @@ export interface OperatorParticipant {
   role?: "operator" | "customer";
   isBot?: boolean;
   platformIdentity?: string;
+  present?: boolean;
 }
 
 export interface OperatorIdentityParticipant extends OperatorParticipant {

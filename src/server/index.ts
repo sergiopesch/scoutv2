@@ -6,12 +6,15 @@ import express, {
 } from "express";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Server } from "node:http";
+import { once } from "node:events";
 import { z } from "zod";
 import { AnalysisCoordinator } from "./analysis-coordinator.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import type {
+  DependencyReadiness,
   MeetingAnalyzer,
   NormalizedMeetingEvent,
   RecallAdapter
@@ -22,11 +25,17 @@ import {
 } from "./codex/index.js";
 import {
   createRecallWebhookHandler,
+  MAX_MEETING_TIMESTAMP_SECONDS,
+  RecallBotCreationAmbiguousError,
   RecallClient,
   recallRawJsonBody
 } from "./recall/index.js";
 import { SessionStore } from "./session-store.js";
-import { toWhiteboardSnapshot } from "../shared/types.js";
+import {
+  toWhiteboardSnapshot,
+  type SessionSnapshot,
+  type WhiteboardSnapshot
+} from "../shared/types.js";
 
 const DevUtteranceSchema = z
   .object({
@@ -35,15 +44,14 @@ const DevUtteranceSchema = z
     participantId: z.string().min(1),
     participantName: z.string().min(1),
     text: z.string().min(1),
-    startedAt: z.number(),
-    endedAt: z.number(),
+    startedAt: z.number().finite().nonnegative().max(MAX_MEETING_TIMESTAMP_SECONDS),
+    endedAt: z.number().finite().nonnegative().max(MAX_MEETING_TIMESTAMP_SECONDS),
     finalized: z.literal(true)
   })
-  .strict();
-
-const ParticipantRoleSchema = z
-  .object({ role: z.enum(["customer", "operator", "unassigned"]) })
-  .strict();
+  .strict()
+  .refine((utterance) => utterance.endedAt >= utterance.startedAt, {
+    message: "endedAt must not precede startedAt"
+  });
 
 const ProcessingStateSchema = z
   .object({
@@ -58,12 +66,24 @@ const OperatorSelectionSchema = z
   .strict();
 
 const RECALL_BOT_NAME = "Live Architect";
+const MAX_EVENT_FUTURE_SKEW_MS = 5 * 60 * 1_000;
+
+const safeOrderingTimestamp = (value: number | undefined): number => {
+  const now = Date.now();
+  return value !== undefined &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= now + MAX_EVENT_FUTURE_SKEW_MS
+    ? value
+    : now;
+};
 
 export interface ScoutRuntimeDependencies {
   analyzer?: MeetingAnalyzer;
   recall?: RecallAdapter;
   statusRecall?: RecallAdapter;
   store?: SessionStore;
+  logger?: (record: Record<string, unknown>) => void;
 }
 
 export interface ScoutRuntime {
@@ -71,7 +91,15 @@ export interface ScoutRuntime {
   config: AppConfig;
   store: SessionStore;
   coordinator: AnalysisCoordinator;
+  readiness(): Promise<ScoutReadiness>;
   close(): Promise<void>;
+}
+
+export interface ScoutReadiness {
+  ok: boolean;
+  mode: "live" | "rehearsal" | "unavailable";
+  codex: DependencyReadiness;
+  recall: DependencyReadiness;
 }
 
 const sessionStatusFromBot = (
@@ -108,7 +136,24 @@ const integrationStatusFromBot = (
   }
 };
 
-const publicDirectory = (): string => path.resolve(process.cwd(), "public");
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+
+const projectRoot = (): string => {
+  const candidates = [
+    process.cwd(),
+    path.resolve(moduleDirectory, "../.."),
+    path.resolve(moduleDirectory, "../../..")
+  ];
+  const resolved = candidates.find(
+    (candidate) =>
+      existsSync(path.join(candidate, "package.json")) &&
+      existsSync(path.join(candidate, "public"))
+  );
+  if (!resolved) {
+    throw new Error("Unable to locate the Scout project root and public assets.");
+  }
+  return resolved;
+};
 
 const routeParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -118,6 +163,24 @@ export const createScoutRuntime = (
   dependencies: ScoutRuntimeDependencies = {}
 ): ScoutRuntime => {
   const app = express();
+  const log =
+    dependencies.logger ??
+    (process.env.VITEST
+      ? () => {}
+      : (record: Record<string, unknown>) => {
+          console.log(
+            JSON.stringify({ timestamp: new Date().toISOString(), ...record })
+          );
+        });
+  const metrics = {
+    sessionsCreated: 0,
+    sessionCreateFailures: 0,
+    recallIntegrationErrors: 0,
+    analysesStarted: 0,
+    analysesCompleted: 0,
+    analysesFailed: 0,
+    analysisDurationMsTotal: 0
+  };
   const store = dependencies.store ?? new SessionStore();
   const analyzer =
     dependencies.analyzer ??
@@ -131,7 +194,22 @@ export const createScoutRuntime = (
     analyzer,
     config.analysisDelayMs,
     config.analysisRerunDelayMs,
-    config.maxAutomaticAnalysisTurnsPerSession
+    config.maxAutomaticAnalysisTurnsPerSession,
+    config.analysisMaxBatchUtterances,
+    config.analysisMaxBatchBytes,
+    (record) =>
+      {
+        if (record.event === "analysis.started") metrics.analysesStarted += 1;
+        if (record.event === "analysis.completed") {
+          metrics.analysesCompleted += 1;
+          metrics.analysisDurationMsTotal += Number(record.durationMs ?? 0);
+        }
+        if (record.event === "analysis.failed") metrics.analysesFailed += 1;
+        log({
+          level: record.event === "analysis.failed" ? "error" : "info",
+          ...record
+        });
+      }
   );
   const recall =
     dependencies.recall ??
@@ -139,8 +217,14 @@ export const createScoutRuntime = (
       ? new RecallClient({
           apiBaseUrl: config.recall.apiBaseUrl,
           apiKey: config.recall.apiKey,
-          webhookSecret: config.recall.workspaceVerificationSecret,
-          outputMode: config.recall.outputMode
+          workspaceVerificationSecret:
+            config.recall.workspaceVerificationSecret,
+          webhookVerificationMode: "workspace",
+          outputMode: config.recall.outputMode,
+          retry: {
+            requestTimeoutMs: config.recall.requestTimeoutMs,
+            maxAttempts: config.recall.maxRetries + 1
+          }
         })
       : undefined);
   const statusRecall =
@@ -149,15 +233,140 @@ export const createScoutRuntime = (
       ? new RecallClient({
           apiBaseUrl: config.recall.apiBaseUrl,
           apiKey: config.recall.apiKey,
-          webhookSecret: config.recall.statusWebhookSecret,
-          outputMode: config.recall.outputMode
+          workspaceVerificationSecret:
+            config.recall.statusWebhookVerificationMode === "workspace"
+              ? config.recall.statusWebhookSecret
+              : undefined,
+          legacySvixWebhookSecret:
+            config.recall.statusWebhookVerificationMode === "svix"
+              ? config.recall.statusWebhookSecret
+              : undefined,
+          webhookVerificationMode:
+            config.recall.statusWebhookVerificationMode === "svix"
+              ? "legacy-svix-dashboard"
+              : "workspace",
+          outputMode: config.recall.outputMode,
+          retry: {
+            requestTimeoutMs: config.recall.requestTimeoutMs,
+            maxAttempts: config.recall.maxRetries + 1
+          }
         })
       : recall);
   const sessionTokens = new Map<string, string>();
+  const tokensBySession = new Map<string, string>();
+  const whiteboardSessions = new Map<string, string>();
+  const whiteboardIdsBySession = new Map<string, string>();
+  const recallCorrelationIdsBySession = new Map<string, string>();
   const botSessions = new Map<string, string>();
+  const pendingBotCreates = new Set<string>();
+  const botCreateOperations = new Map<string, Promise<void>>();
+  const retiringSessions = new Map<string, Promise<void>>();
   const processingTransitions = new Map<string, Promise<void>>();
+  const resumingSessions = new Set<string>();
   const sessionEpochs = new Map<string, number>();
-  const publicDir = publicDirectory();
+  const recallEventHighWater = new Map<string, number>();
+  const participantEventHighWater = new Map<string, number>();
+  const sseResponsesBySession = new Map<string, Set<Response>>();
+  const rootDir = projectRoot();
+  const publicDir = path.join(rootDir, "public");
+  let closing = false;
+
+  const liveRecallConfigured = Boolean(recall && config.publicBaseUrl);
+  const mode: ScoutReadiness["mode"] = liveRecallConfigured
+    ? "live"
+    : config.allowDevIngest
+      ? "rehearsal"
+      : "unavailable";
+  let readinessCheck: Promise<ScoutReadiness> | undefined;
+  let lastReadiness: { checkedAt: number; value: ScoutReadiness } | undefined;
+
+  const checkDependency = async (
+    dependency: { checkReadiness?(): Promise<DependencyReadiness> } | undefined,
+    fallback: DependencyReadiness
+  ): Promise<DependencyReadiness> => {
+    if (!dependency?.checkReadiness) return fallback;
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+      const timedOut = new Promise<DependencyReadiness>((resolve) => {
+        timeout = setTimeout(
+          () => resolve({ ready: false, detail: "Readiness check timed out." }),
+          15_000
+        );
+        timeout.unref();
+      });
+      const result = await Promise.race([
+        dependency.checkReadiness(),
+        timedOut
+      ]);
+      return result;
+    } catch (error) {
+      return {
+        ready: false,
+        detail: error instanceof Error ? error.message : String(error)
+      };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  };
+
+  const readiness = async (): Promise<ScoutReadiness> => {
+    if (lastReadiness && Date.now() - lastReadiness.checkedAt < 5_000) {
+      return lastReadiness.value;
+    }
+    if (readinessCheck) return readinessCheck;
+    readinessCheck = (async () => {
+      const [codex, recallState] = await Promise.all([
+        analyzer.resetSession
+          ? checkDependency(analyzer, {
+              ready: false,
+              detail: "Codex readiness check is unavailable"
+            })
+          : Promise.resolve({
+              ready: false,
+              detail: "Codex analyzer cannot reset meeting threads"
+            }),
+        mode === "live"
+          ? recall?.leaveBot
+            ? checkDependency(recall, {
+                ready: false,
+                detail: "Recall readiness check is unavailable"
+              })
+            : Promise.resolve({
+                ready: false,
+                detail: "Recall bot retirement is unavailable"
+              })
+          : Promise.resolve({
+              ready: mode === "rehearsal",
+              detail:
+                mode === "rehearsal"
+                  ? "Recall bypassed in explicit rehearsal mode"
+                  : "Recall and PUBLIC_API_BASE_URL are required"
+            })
+      ]);
+      const value: ScoutReadiness = {
+        ok: !closing && codex.ready && recallState.ready && mode !== "unavailable",
+        mode,
+        codex,
+        recall: recallState
+      };
+      lastReadiness = { checkedAt: Date.now(), value };
+      return value;
+    })().finally(() => {
+      readinessCheck = undefined;
+    });
+    return readinessCheck;
+  };
+
+  void readiness().then((state) => {
+    log({
+      level: state.ok ? "info" : "warn",
+      event: "runtime.readiness",
+      mode: state.mode,
+      ready: state.ok,
+      codexReady: state.codex.ready,
+      recallReady: state.recall.ready
+    });
+  });
 
   const setListeningUnlessTerminal = (sessionId: string): void => {
     const status = store.getRequired(sessionId).status;
@@ -175,6 +384,131 @@ export const createScoutRuntime = (
         )
       ).length;
 
+  const sseClientCount = (): number =>
+    [...sseResponsesBySession.values()].reduce(
+      (count, responses) => count + responses.size,
+      0
+    );
+
+  const closeSessionStreams = (sessionId: string): void => {
+    const responses = sseResponsesBySession.get(sessionId);
+    if (!responses) return;
+    sseResponsesBySession.delete(sessionId);
+    for (const response of responses) {
+      try {
+        response.end();
+      } catch {
+        // The connection is already gone; retention/shutdown still proceeds.
+      }
+    }
+  };
+
+  const retireSession = (
+    sessionId: string,
+    reason: "retention" | "shutdown"
+  ): Promise<void> => {
+    const existingRetirement = retiringSessions.get(sessionId);
+    if (existingRetirement) return existingRetirement;
+    const snapshot = store.get(sessionId);
+    if (!snapshot) return Promise.resolve();
+
+    const operation = Promise.resolve()
+      .then(async () => {
+        closeSessionStreams(sessionId);
+        // Invalidate webhook work that captured the previous epoch before the
+        // retirement began. Deleting an epoch whose value was zero would fail
+        // open because applyEvents deliberately defaults a missing epoch to 0.
+        sessionEpochs.set(sessionId, (sessionEpochs.get(sessionId) ?? 0) + 1);
+        pendingBotCreates.delete(sessionId);
+        resumingSessions.delete(sessionId);
+        recallEventHighWater.delete(sessionId);
+        for (const key of participantEventHighWater.keys()) {
+          if (key.startsWith(`${sessionId}:`)) {
+            participantEventHighWater.delete(key);
+          }
+        }
+
+        // A pause/resume transition owns the right to mutate the session until
+        // it settles. Await it before deleting retained state so it cannot
+        // resume later and write into a removed session.
+        const transition = processingTransitions.get(sessionId);
+        if (transition) await transition.catch(() => undefined);
+        if (processingTransitions.get(sessionId) === transition) {
+          processingTransitions.delete(sessionId);
+        }
+
+        const latestSnapshot = store.get(sessionId) ?? snapshot;
+        const correlationId = recallCorrelationIdsBySession.get(sessionId);
+        const botIds = latestSnapshot.recall.botId
+          ? [latestSnapshot.recall.botId]
+          : correlationId && recall?.findBotsByCorrelationId
+            ? await recall.findBotsByCorrelationId(correlationId)
+            : [];
+        for (const botId of botIds) {
+          if (recall?.leaveBot) {
+            try {
+              await recall.leaveBot(botId);
+            } catch (error) {
+              log({
+                level: "warn",
+                event: "recall.bot_retire_failed",
+                sessionId,
+                botId,
+                detail: error instanceof Error ? error.message : String(error)
+              });
+              throw error;
+            }
+          }
+          botSessions.delete(botId);
+        }
+
+        const token = tokensBySession.get(sessionId);
+        if (token) sessionTokens.delete(token);
+        tokensBySession.delete(sessionId);
+        const whiteboardId = whiteboardIdsBySession.get(sessionId);
+        if (whiteboardId) whiteboardSessions.delete(whiteboardId);
+        whiteboardIdsBySession.delete(sessionId);
+        recallCorrelationIdsBySession.delete(sessionId);
+        coordinator.forgetSession(sessionId);
+        store.delete(sessionId);
+        sessionEpochs.delete(sessionId);
+        log({ level: "info", event: "session.retired", sessionId, reason });
+      })
+      .catch((error) => {
+        log({
+          level: "error",
+          event: "session.retire_failed",
+          sessionId,
+          reason,
+          detail: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+      })
+      .finally(() => {
+        if (retiringSessions.get(sessionId) === operation) {
+          retiringSessions.delete(sessionId);
+        }
+      });
+    retiringSessions.set(sessionId, operation);
+    return operation;
+  };
+
+  const cleanupTimer = setInterval(() => {
+    const cutoff = Date.now() - config.sessionRetentionMs;
+    for (const snapshot of store.list()) {
+      if (
+        (snapshot.status === "ended" || snapshot.status === "error") &&
+        snapshot.updatedAt <= cutoff
+      ) {
+        void retireSession(snapshot.id, "retention").catch(() => {
+          // The retained session and bot mapping remain available for the next
+          // cleanup pass, which retries retirement after transient failures.
+        });
+      }
+    }
+  }, Math.min(60_000, config.sessionRetentionMs));
+  cleanupTimer.unref();
+
   const applyEvents = async (
     sessionId: string,
     events: NormalizedMeetingEvent[],
@@ -182,8 +516,10 @@ export const createScoutRuntime = (
   ): Promise<void> => {
     if ((sessionEpochs.get(sessionId) ?? 0) !== expectedEpoch) return;
     for (const event of events) {
+      if (!store.get(sessionId)) return;
       if (
         store.getRequired(sessionId).processing.paused &&
+        !resumingSessions.has(sessionId) &&
         (event.type === "transcript.partial" ||
           event.type === "transcript.final")
       ) {
@@ -192,7 +528,20 @@ export const createScoutRuntime = (
       if (event.type === "participant.joined") {
         store.upsertParticipant(sessionId, {
           ...event.participant,
-          isBot: event.participant.name === RECALL_BOT_NAME
+          present: event.participant.present ?? true
+        });
+        continue;
+      }
+      if (event.type === "participant.changed") {
+        const occurredAt = safeOrderingTimestamp(event.occurredAt);
+        const highWaterKey = `${sessionId}:${event.participant.id}`;
+        const previous = participantEventHighWater.get(highWaterKey) ?? 0;
+        if (occurredAt < previous) continue;
+        participantEventHighWater.set(highWaterKey, occurredAt);
+        store.upsertParticipant(sessionId, {
+          ...event.participant,
+          present: event.action === "left" ? false : (event.participant.present ?? true),
+          ...(event.action === "left" ? { leftAt: occurredAt } : {})
         });
         continue;
       }
@@ -200,7 +549,7 @@ export const createScoutRuntime = (
         store.upsertParticipant(sessionId, {
           id: event.utterance.participantId,
           name: event.utterance.participantName,
-          isBot: event.utterance.participantName === RECALL_BOT_NAME
+          present: true
         });
         store.appendUtterance(sessionId, event.utterance);
         setListeningUnlessTerminal(sessionId);
@@ -210,25 +559,67 @@ export const createScoutRuntime = (
         store.upsertParticipant(sessionId, {
           id: event.utterance.participantId,
           name: event.utterance.participantName,
-          isBot: event.utterance.participantName === RECALL_BOT_NAME
+          present: true
         });
         store.appendUtterance(sessionId, event.utterance);
         setListeningUnlessTerminal(sessionId);
-        const existing = store.getRequired(sessionId).recall;
-        store.setRecall(sessionId, {
-          ...existing,
-          status: "active"
-        });
+        const current = store.getRequired(sessionId);
+        if (current.status !== "ended" && current.status !== "error") {
+          store.setRecall(sessionId, {
+            ...current.recall,
+            status: "active"
+          });
+        }
         coordinator.schedule(sessionId);
         continue;
       }
+      if (event.type === "integration.error") {
+        metrics.recallIntegrationErrors += 1;
+        const occurredAt = safeOrderingTimestamp(event.occurredAt);
+        const previous = recallEventHighWater.get(sessionId) ?? 0;
+        if (occurredAt < previous) continue;
+        recallEventHighWater.set(sessionId, occurredAt);
+        const existing = store.getRequired(sessionId).recall;
+        store.setRecall(sessionId, {
+          ...existing,
+          status: "error",
+          detail: `${event.code}: ${event.detail}`,
+          lastEventAt: occurredAt
+        });
+        if (event.fatal && store.getRequired(sessionId).status !== "ended") {
+          store.setStatus(sessionId, "error");
+        }
+        log({
+          level: event.fatal ? "error" : "warn",
+          event: "recall.integration_error",
+          sessionId,
+          code: event.code,
+          fatal: event.fatal
+        });
+        continue;
+      }
+      const occurredAt = safeOrderingTimestamp(event.occurredAt);
+      const previous = recallEventHighWater.get(sessionId) ?? 0;
+      if (occurredAt < previous) continue;
+      const currentStatus = store.getRequired(sessionId).status;
+      if (
+        (currentStatus === "error" && event.status !== "error") ||
+        (currentStatus === "ended" &&
+          event.status !== "ended" &&
+          event.status !== "error")
+      ) {
+        continue;
+      }
+      recallEventHighWater.set(sessionId, occurredAt);
       store.setStatus(sessionId, sessionStatusFromBot(event.status));
       const existing = store.getRequired(sessionId).recall;
       store.setRecall(sessionId, {
         ...existing,
         status: integrationStatusFromBot(event.status),
-        detail: event.detail
+        detail: event.detail,
+        lastEventAt: occurredAt
       });
+      if (event.status === "ended") coordinator.schedule(sessionId);
     }
   };
 
@@ -263,25 +654,35 @@ export const createScoutRuntime = (
     enqueueProcessingOperation(sessionId, async () => {
       const current = store.getRequired(sessionId);
       if (current.processing.paused === paused) return;
+      const acceptsDuringResume =
+        !paused && Boolean(recall && current.recall.botId) && current.status !== "ended";
+      if (acceptsDuringResume) resumingSessions.add(sessionId);
+      try {
+        if (recall && current.recall.botId && current.status !== "ended") {
+          if (paused) await recall.pauseRecording(current.recall.botId);
+          else await recall.resumeRecording(current.recall.botId);
+        }
 
-      if (recall && current.recall.botId) {
-        if (paused) await recall.pauseRecording(current.recall.botId);
-        else await recall.resumeRecording(current.recall.botId);
+        store.setProcessingPaused(sessionId, paused);
+        coordinator.setPaused(sessionId, paused);
+        const nextRecall = store.getRequired(sessionId).recall;
+        store.setRecall(sessionId, {
+          ...nextRecall,
+          detail: current.status === "ended"
+            ? paused
+              ? "Post-meeting processing paused"
+              : "Post-meeting processing enabled for pending finalized evidence"
+            : current.recall.botId
+            ? paused
+              ? "Recording and real-time transcription paused"
+              : "Recording and real-time transcription active"
+            : paused
+              ? "Server processing paused; waiting for an active Recall bot"
+              : "Live server processing active; waiting for an active Recall bot"
+        });
+      } finally {
+        if (acceptsDuringResume) resumingSessions.delete(sessionId);
       }
-
-      store.setProcessingPaused(sessionId, paused);
-      coordinator.setPaused(sessionId, paused);
-      const nextRecall = store.getRequired(sessionId).recall;
-      store.setRecall(sessionId, {
-        ...nextRecall,
-        detail: current.recall.botId
-          ? paused
-            ? "Recording and real-time transcription paused"
-            : "Recording and real-time transcription active"
-          : paused
-            ? "Server processing paused; waiting for an active Recall bot"
-            : "Live server processing active; waiting for an active Recall bot"
-      });
     });
 
   const dynamicWebhook: RequestHandler = (
@@ -325,9 +726,24 @@ export const createScoutRuntime = (
       onEvents: async (events) => {
         const grouped = new Map<string, NormalizedMeetingEvent[]>();
         for (const event of events) {
-          if (event.type !== "bot.status" || !event.botId) continue;
+          if (
+            (event.type !== "bot.status" && event.type !== "integration.error") ||
+            !event.botId
+          ) {
+            continue;
+          }
           const sessionId = botSessions.get(event.botId);
-          if (!sessionId) continue;
+          if (!sessionId) {
+            // Recall can publish status before the create-bot response reaches
+            // Scout. Ask it to retry while any create is in flight so that the
+            // event is not acknowledged and permanently lost in that window.
+            if (pendingBotCreates.size > 0) {
+              throw new Error(
+                `Recall status arrived before bot ${event.botId} was mapped to its session.`
+              );
+            }
+            continue;
+          }
           const group = grouped.get(sessionId) ?? [];
           group.push(event);
           grouped.set(sessionId, group);
@@ -353,18 +769,38 @@ export const createScoutRuntime = (
   app.use(express.json({ limit: "1mb" }));
   app.use(
     "/vendor/mermaid",
-    express.static(path.resolve(process.cwd(), "node_modules/mermaid/dist"))
+    express.static(path.join(rootDir, "node_modules/mermaid/dist"), {
+      setHeaders: (response) => response.setHeader("Cache-Control", "no-store")
+    })
   );
-  app.use(express.static(publicDir));
+  app.use(
+    express.static(publicDir, {
+      setHeaders: (response) => response.setHeader("Cache-Control", "no-store")
+    })
+  );
 
-  app.get("/health", (_request, response) => {
+  app.get("/livez", (_request, response) => {
+    response.status(closing ? 503 : 200).json({ ok: !closing });
+  });
+
+  const readinessHandler: RequestHandler = async (_request, response) => {
+    const state = await readiness();
+    response.status(state.ok ? 200 : 503).json(state);
+  };
+  app.get("/readyz", readinessHandler);
+  app.get("/health", readinessHandler);
+  app.get("/metrics", async (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
     response.json({
-      ok: true,
-      recallConfigured: Boolean(recall && config.publicBaseUrl)
+      ...metrics,
+      activeSessions: activeSessionCount(),
+      retainedSessions: store.list().length,
+      sseClients: sseClientCount(),
+      readiness: await readiness()
     });
   });
 
-  app.post("/api/sessions", (request, response) => {
+  app.post("/api/sessions", async (request, response) => {
     const meetingUrl =
       typeof request.body?.meetingUrl === "string"
         ? request.body.meetingUrl.trim()
@@ -374,6 +810,15 @@ export const createScoutRuntime = (
       if (url.protocol !== "https:") throw new Error("not https");
     } catch {
       response.status(400).json({ error: "a valid HTTPS meetingUrl is required" });
+      return;
+    }
+
+    const ready = await readiness();
+    if (!ready.ok) {
+      response.status(503).json({
+        error: "Scout is not ready to create a session",
+        readiness: ready
+      });
       return;
     }
 
@@ -387,69 +832,161 @@ export const createScoutRuntime = (
     const snapshot = store.create(meetingUrl);
     sessionEpochs.set(snapshot.id, 0);
     const sessionToken = randomBytes(24).toString("base64url");
+    const whiteboardId = randomBytes(24).toString("base64url");
     sessionTokens.set(sessionToken, snapshot.id);
+    tokensBySession.set(snapshot.id, sessionToken);
+    whiteboardSessions.set(whiteboardId, snapshot.id);
+    whiteboardIdsBySession.set(snapshot.id, whiteboardId);
 
-    response.status(201).json({
-      sessionId: snapshot.id,
-      operatorUrl: `/operator/${snapshot.id}`,
-      whiteboardUrl: `/whiteboard/${snapshot.id}`
-    });
-
-    if (!recall || !config.publicBaseUrl) {
+    if (mode === "rehearsal") {
       store.setRecall(snapshot.id, {
-        status: "error",
-        detail:
-          "Recall requires RECALL_API_KEY, RECALL_WORKSPACE_VERIFICATION_SECRET, and PUBLIC_API_BASE_URL."
+        status: "idle",
+        detail: "Explicit rehearsal mode; use finalized dev ingest"
+      });
+      store.setStatus(snapshot.id, "listening");
+      metrics.sessionsCreated += 1;
+      log({ level: "info", event: "session.created", sessionId: snapshot.id, mode });
+      response.status(201).json({
+        sessionId: snapshot.id,
+        operatorUrl: `/operator/${snapshot.id}`,
+        whiteboardUrl: `/whiteboard/${whiteboardId}`,
+        mode
       });
       return;
     }
+
+    if (!recall || !config.publicBaseUrl) {
+      sessionTokens.delete(sessionToken);
+      tokensBySession.delete(snapshot.id);
+      whiteboardSessions.delete(whiteboardId);
+      whiteboardIdsBySession.delete(snapshot.id);
+      sessionEpochs.delete(snapshot.id);
+      store.delete(snapshot.id);
+      response.status(503).json({ error: "Recall live mode is not configured" });
+      return;
+    }
+
+    const correlationId = randomBytes(24).toString("base64url");
+    // A per-session nonce makes the provider-side display name unpredictable
+    // before the bot joins. Recall participant events do not carry a trusted
+    // "this is your bot" marker, so the adapter locks the first exact match to
+    // this unique name and rejects later same-name human participants as bots.
+    const botName = `${RECALL_BOT_NAME} · ${randomBytes(8).toString("base64url")}`;
+    recallCorrelationIdsBySession.set(snapshot.id, correlationId);
 
     store.setRecall(snapshot.id, {
       status: "connecting",
       detail: `Creating bot in ${config.recall?.region ?? "configured"} region`
     });
-    void recall
-      .createBot({
+    pendingBotCreates.add(snapshot.id);
+    let finishCreateOperation!: () => void;
+    const createOperation = new Promise<void>((resolve) => {
+      finishCreateOperation = resolve;
+    });
+    botCreateOperations.set(snapshot.id, createOperation);
+    try {
+      const { botId } = await recall.createBot({
         meetingUrl,
-        botName: RECALL_BOT_NAME,
+        botName,
         publicBaseUrl: config.publicBaseUrl,
         sessionId: snapshot.id,
-        sessionToken
-      })
-      .then(async ({ botId }) => {
+        correlationId,
+        sessionToken,
+        whiteboardId
+      });
+      if (closing && store.get(snapshot.id)) {
         botSessions.set(botId, snapshot.id);
         store.setRecall(snapshot.id, {
-          status: "waiting",
+          status: "error",
           botId,
-          detail: "Waiting for host admission"
+          detail: "Scout began shutting down while Recall created the bot"
         });
-        store.setStatus(snapshot.id, "waiting_for_admission");
-        await enqueueProcessingOperation(snapshot.id, async () => {
-          if (store.getRequired(snapshot.id).processing.paused) {
-            try {
-              await recall.pauseRecording(botId);
-              const current = store.getRequired(snapshot.id).recall;
-              store.setRecall(snapshot.id, {
-                ...current,
-                detail: "Recording and real-time transcription paused"
-              });
-            } catch (error) {
-              const message =
-                error instanceof Error ? error.message : String(error);
-              store.setRecall(snapshot.id, {
-                status: "error",
-                botId,
-                detail: `${message}; server processing remains paused`
-              });
-            }
-          }
-        });
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        store.setRecall(snapshot.id, { status: "error", detail: message });
         store.setStatus(snapshot.id, "error");
+        metrics.sessionCreateFailures += 1;
+        log({
+          level: "warn",
+          event: "session.create_aborted",
+          sessionId: snapshot.id,
+          botId,
+          reason: "runtime closing"
+        });
+        response.status(503).json({ error: "Scout is shutting down" });
+        return;
+      }
+      if (!store.get(snapshot.id)) {
+        await recall.leaveBot?.(botId);
+        response.status(503).json({ error: "Scout session is no longer available" });
+        return;
+      }
+      botSessions.set(botId, snapshot.id);
+      store.setRecall(snapshot.id, {
+        status: "waiting",
+        botId,
+        detail: "Waiting for host admission"
       });
+      store.setStatus(snapshot.id, "waiting_for_admission");
+      metrics.sessionsCreated += 1;
+      log({
+        level: "info",
+        event: "session.created",
+        sessionId: snapshot.id,
+        botId,
+        mode
+      });
+      response.status(201).json({
+        sessionId: snapshot.id,
+        operatorUrl: `/operator/${snapshot.id}`,
+        whiteboardUrl: `/whiteboard/${whiteboardId}`,
+        mode
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      metrics.sessionCreateFailures += 1;
+      if (
+        error instanceof RecallBotCreationAmbiguousError &&
+        store.get(snapshot.id)
+      ) {
+        store.setRecall(snapshot.id, {
+          status: "error",
+          detail: message
+        });
+        store.setStatus(snapshot.id, "error");
+        log({
+          level: "error",
+          event: "session.create_ambiguous",
+          sessionId: snapshot.id,
+          correlationId: error.correlationId,
+          detail: message
+        });
+        response.status(502).json({
+          error: message,
+          sessionId: snapshot.id,
+          operatorUrl: `/operator/${snapshot.id}`,
+          whiteboardUrl: `/whiteboard/${whiteboardId}`,
+          cleanupPending: true
+        });
+        return;
+      }
+      sessionTokens.delete(sessionToken);
+      tokensBySession.delete(snapshot.id);
+      whiteboardSessions.delete(whiteboardId);
+      whiteboardIdsBySession.delete(snapshot.id);
+      recallCorrelationIdsBySession.delete(snapshot.id);
+      sessionEpochs.delete(snapshot.id);
+      coordinator.forgetSession(snapshot.id);
+      store.delete(snapshot.id);
+      log({
+        level: "error",
+        event: "session.create_failed",
+        sessionId: snapshot.id,
+        detail: message
+      });
+      response.status(502).json({ error: `Recall bot creation failed: ${message}` });
+    } finally {
+      pendingBotCreates.delete(snapshot.id);
+      botCreateOperations.delete(snapshot.id);
+      finishCreateOperation();
+    }
   });
 
   app.get("/api/sessions/:sessionId", (request, response) => {
@@ -462,45 +999,20 @@ export const createScoutRuntime = (
     response.json(snapshot);
   });
 
-  app.put(
-    "/api/sessions/:sessionId/participants/:participantId/role",
-    (request, response) => {
-      const snapshot = store.get(request.params.sessionId);
-      if (!snapshot) {
-        response.status(404).json({ error: "session not found" });
-        return;
-      }
-      if (!snapshot.participants.some((item) => item.id === request.params.participantId)) {
-        response.status(404).json({ error: "participant not found" });
-        return;
-      }
-      const parsed = ParticipantRoleSchema.safeParse(request.body);
-      if (!parsed.success) {
-        response.status(400).json({ error: "role must be customer, operator, or unassigned" });
-        return;
-      }
-      const updated = store.setParticipantRole(
-        snapshot.id,
-        request.params.participantId,
-        parsed.data.role === "unassigned" ? undefined : parsed.data.role
-      );
-      coordinator.schedule(snapshot.id);
-      response.json(updated);
-    }
-  );
-
-  app.get("/api/whiteboards/:sessionId", (request, response) => {
-    const snapshot = store.get(request.params.sessionId);
+  app.get("/api/whiteboards/:whiteboardId", (request, response) => {
+    const whiteboardId = routeParam(request.params.whiteboardId);
+    const sessionId = whiteboardSessions.get(whiteboardId);
+    const snapshot = sessionId ? store.get(sessionId) : undefined;
     if (!snapshot) {
       response.status(404).json({ error: "session not found" });
       return;
     }
     response.setHeader("Cache-Control", "no-store");
-    response.json(toWhiteboardSnapshot(snapshot));
+    response.json(toWhiteboardSnapshot(snapshot, whiteboardId));
   });
 
   app.put("/api/sessions/:sessionId/processing", async (request, response) => {
-    const sessionId = request.params.sessionId;
+    const sessionId = routeParam(request.params.sessionId);
     if (!store.get(sessionId)) {
       response.status(404).json({ error: "session not found" });
       return;
@@ -520,9 +1032,10 @@ export const createScoutRuntime = (
     }
   });
 
-  app.put("/api/sessions/:sessionId/operator", (request, response) => {
+  app.put("/api/sessions/:sessionId/operator", async (request, response) => {
     const sessionId = request.params.sessionId;
-    if (!store.get(sessionId)) {
+    const snapshot = store.get(sessionId);
+    if (!snapshot) {
       response.status(404).json({ error: "session not found" });
       return;
     }
@@ -531,17 +1044,32 @@ export const createScoutRuntime = (
       response.status(400).json({ error: "participantId is required" });
       return;
     }
+    let updated: SessionSnapshot;
     try {
-      const updated = store.selectOperator(
+      updated = store.selectOperator(
         sessionId,
         parsed.data.participantId
       );
-      coordinator.schedule(sessionId);
-      response.setHeader("Cache-Control", "no-store");
-      response.json(updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       response.status(400).json({ error: message });
+      return;
+    }
+    try {
+      const previousRoleRevision = snapshot.roleRevision;
+      if (
+        updated.roleRevision !== previousRoleRevision ||
+        coordinator.needsRoleReset(sessionId)
+      ) {
+        await coordinator.rolesChanged(sessionId);
+      } else {
+        coordinator.schedule(sessionId);
+      }
+      response.setHeader("Cache-Control", "no-store");
+      response.json(store.getRequired(sessionId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.status(409).json({ error: message });
     }
   });
 
@@ -551,8 +1079,9 @@ export const createScoutRuntime = (
       response.status(404).json({ error: "session not found" });
       return;
     }
-    if (snapshot.processing.paused) {
-      response.status(409).json({ error: "live processing is paused" });
+    const blocker = coordinator.manualBlocker(request.params.sessionId);
+    if (blocker) {
+      response.status(409).json({ error: blocker });
       return;
     }
     void coordinator.analyzeNow(request.params.sessionId);
@@ -581,7 +1110,7 @@ export const createScoutRuntime = (
     }
   });
 
-  if (config.allowDevIngest) {
+  if (mode === "rehearsal") {
     app.post("/api/dev/sessions/:sessionId/utterances", (request, response) => {
       if (!store.get(request.params.sessionId)) {
         response.status(404).json({ error: "session not found" });
@@ -598,10 +1127,20 @@ export const createScoutRuntime = (
         response.status(400).json({ error: "invalid finalized utterance" });
         return;
       }
+      if (
+        Buffer.byteLength(parsed.data.text, "utf8") >
+        config.analysisMaxBatchBytes
+      ) {
+        response.status(413).json({
+          error: `utterance exceeds the ${config.analysisMaxBatchBytes}-byte analysis limit`
+        });
+        return;
+      }
       store.upsertParticipant(request.params.sessionId, {
         id: parsed.data.participantId,
         name: parsed.data.participantName,
-        isBot: parsed.data.participantName === RECALL_BOT_NAME
+        isBot: false,
+        present: true
       });
       const snapshot = store.appendUtterance(
         request.params.sessionId,
@@ -612,9 +1151,25 @@ export const createScoutRuntime = (
     });
   }
 
-  app.get("/events/:sessionId", (request, response) => {
-    if (!store.get(request.params.sessionId)) {
+  const streamSession = (
+    request: Request,
+    response: Response,
+    eventName: "session" | "whiteboard",
+    resolvedSessionId?: string,
+    whiteboardId?: string
+  ): void => {
+    const sessionId = resolvedSessionId ?? routeParam(request.params.sessionId);
+    if (!store.get(sessionId)) {
       response.status(404).end();
+      return;
+    }
+    const sessionConnectionCount = sseResponsesBySession.get(sessionId)?.size ?? 0;
+    if (
+      sseClientCount() >= config.maxSseConnections ||
+      sessionConnectionCount >= config.maxSseConnectionsPerSession
+    ) {
+      response.setHeader("Retry-After", "5");
+      response.status(429).json({ error: "SSE connection limit reached" });
       return;
     }
 
@@ -624,46 +1179,113 @@ export const createScoutRuntime = (
     response.setHeader("Connection", "keep-alive");
     response.setHeader("X-Accel-Buffering", "no");
     response.flushHeaders();
+    const sessionResponses =
+      sseResponsesBySession.get(sessionId) ?? new Set<Response>();
+    sessionResponses.add(response);
+    sseResponsesBySession.set(sessionId, sessionResponses);
 
-    const unsubscribe = store.subscribe(request.params.sessionId, (next) => {
-      response.write(`event: session\ndata: ${JSON.stringify(next)}\n\n`);
-    });
+    let closed = false;
+    let blocked = false;
+    let pendingFrame: string | undefined;
+    type StreamSnapshot = SessionSnapshot | WhiteboardSnapshot;
+    let queuedSnapshot: StreamSnapshot | undefined;
+    let coalesceTimer: NodeJS.Timeout | undefined;
+    let lastWhiteboardSignature: string | undefined;
+    let publishedInitial = false;
+    let unsubscribe = (): void => {};
+
+    const writeFrame = (frame: string): void => {
+      if (closed) return;
+      if (blocked) {
+        pendingFrame = frame;
+        return;
+      }
+      try {
+        blocked = !response.write(frame);
+      } catch {
+        cleanup();
+      }
+    };
+
+    const publish = (snapshot: StreamSnapshot): void => {
+      if (eventName === "whiteboard") {
+        const projected = {
+          ...(snapshot as WhiteboardSnapshot),
+          id: whiteboardId ?? (snapshot as WhiteboardSnapshot).id
+        };
+        const signature = JSON.stringify({
+          revision: projected.revision,
+          roleRevision: projected.roleRevision,
+          status: projected.status,
+          analysis: projected.analysis.status,
+          paused: projected.processing.paused
+        });
+        if (signature === lastWhiteboardSignature) return;
+        lastWhiteboardSignature = signature;
+        writeFrame(`event: whiteboard\ndata: ${JSON.stringify(projected)}\n\n`);
+        return;
+      }
+      writeFrame(`event: session\ndata: ${JSON.stringify(snapshot)}\n\n`);
+    };
+
+    const queuePublish = (snapshot: StreamSnapshot): void => {
+      if (!publishedInitial) {
+        publishedInitial = true;
+        publish(snapshot);
+        return;
+      }
+      queuedSnapshot = snapshot;
+      if (coalesceTimer) return;
+      coalesceTimer = setTimeout(() => {
+        coalesceTimer = undefined;
+        const next = queuedSnapshot;
+        queuedSnapshot = undefined;
+        if (next) publish(next);
+      }, 50);
+      coalesceTimer.unref();
+    };
+
     const heartbeat = setInterval(() => {
-      response.write(": heartbeat\n\n");
+      if (!blocked) writeFrame(": heartbeat\n\n");
     }, 15_000);
+    heartbeat.unref();
 
-    request.on("close", () => {
+    const cleanup = (): void => {
+      if (closed) return;
+      closed = true;
       clearInterval(heartbeat);
+      if (coalesceTimer) clearTimeout(coalesceTimer);
       unsubscribe();
+      const responses = sseResponsesBySession.get(sessionId);
+      responses?.delete(response);
+      if (responses?.size === 0) sseResponsesBySession.delete(sessionId);
+    };
+
+    response.on("drain", () => {
+      blocked = false;
+      const frame = pendingFrame;
+      pendingFrame = undefined;
+      if (frame) writeFrame(frame);
     });
+    request.once("close", cleanup);
+    response.once("close", cleanup);
+    unsubscribe = eventName === "whiteboard"
+      ? store.subscribeWhiteboard(sessionId, queuePublish)
+      : store.subscribe(sessionId, queuePublish);
+  };
+
+  app.get("/events/:sessionId", (request, response) => {
+    streamSession(request, response, "session");
   });
 
-  app.get("/events/whiteboards/:sessionId", (request, response) => {
-    if (!store.get(request.params.sessionId)) {
+  app.get("/events/whiteboards/:whiteboardId", (request, response) => {
+    const whiteboardId = routeParam(request.params.whiteboardId);
+    const sessionId = whiteboardSessions.get(whiteboardId);
+    if (!sessionId) {
       response.status(404).end();
       return;
     }
-
-    response.status(200);
-    response.setHeader("Content-Type", "text/event-stream");
-    response.setHeader("Cache-Control", "no-cache, no-transform");
-    response.setHeader("Connection", "keep-alive");
-    response.setHeader("X-Accel-Buffering", "no");
-    response.flushHeaders();
-
-    const unsubscribe = store.subscribe(request.params.sessionId, (next) => {
-      response.write(
-        `event: whiteboard\ndata: ${JSON.stringify(toWhiteboardSnapshot(next))}\n\n`
-      );
-    });
-    const heartbeat = setInterval(() => {
-      response.write(": heartbeat\n\n");
-    }, 15_000);
-
-    request.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-    });
+    streamSession(request, response, "whiteboard", sessionId, whiteboardId);
   });
 
   app.get("/operator/:sessionId", (_request, response) => {
@@ -674,12 +1296,155 @@ export const createScoutRuntime = (
     response.sendFile(path.join(publicDir, "whiteboard.html"));
   });
 
+  app.use(
+    (
+      error: unknown,
+      request: Request,
+      response: Response,
+      next: NextFunction
+    ): void => {
+      if (response.headersSent) {
+        next(error);
+        return;
+      }
+      const candidateStatus =
+        error && typeof error === "object" && "status" in error
+          ? Number((error as { status?: unknown }).status)
+          : Number.NaN;
+      const status =
+        Number.isInteger(candidateStatus) &&
+        candidateStatus >= 400 &&
+        candidateStatus < 500
+          ? candidateStatus
+          : 500;
+      log({
+        level: status >= 500 ? "error" : "warn",
+        event: "http.request_rejected",
+        method: request.method,
+        status,
+        errorType: error instanceof Error ? error.name : typeof error
+      });
+      response.status(status).json({
+        error:
+          status === 413
+            ? "request body too large"
+            : status < 500
+              ? "invalid request body"
+              : "internal server error"
+      });
+    }
+  );
+
+  let closePromise: Promise<void> | undefined;
+  const closeRuntime = (): Promise<void> => {
+    if (closePromise) return closePromise;
+    closing = true;
+    lastReadiness = undefined;
+    clearInterval(cleanupTimer);
+    for (const sessionId of [...sseResponsesBySession.keys()]) {
+      closeSessionStreams(sessionId);
+    }
+
+    const shutdownDeadlineAt = Date.now() + config.shutdownGraceMs;
+    const quiesceTasks = [
+      ...processingTransitions.values(),
+      ...retiringSessions.values(),
+      ...botCreateOperations.values()
+    ];
+    const collectFailures = (
+      failures: unknown[],
+      results: PromiseSettledResult<unknown>[]
+    ): void => {
+      failures.push(
+        ...results
+          .filter(
+            (result): result is PromiseRejectedResult =>
+              result.status === "rejected"
+          )
+          .map((result) => result.reason)
+      );
+    };
+    const retryRetirement = async (sessionId: string): Promise<void> => {
+      let lastFailure: unknown;
+      while (Date.now() < shutdownDeadlineAt) {
+        try {
+          await retireSession(sessionId, "shutdown");
+          return;
+        } catch (error) {
+          lastFailure = error;
+          const remainingMs = shutdownDeadlineAt - Date.now();
+          if (remainingMs <= 10) break;
+          await new Promise<void>((resolve) => {
+            const retryTimer = setTimeout(resolve, Math.min(250, remainingMs - 5));
+            retryTimer.unref();
+          });
+        }
+      }
+      throw lastFailure ?? new Error(`Unable to retire session ${sessionId}.`);
+    };
+    const shutdownWork = (async () => {
+      const failures: unknown[] = [];
+      collectFailures(failures, await Promise.allSettled(quiesceTasks));
+      collectFailures(
+        failures,
+        await Promise.allSettled([
+          ...store.list().map((snapshot) => retryRetirement(snapshot.id)),
+          coordinator.close()
+        ])
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, "Scout shutdown cleanup failed");
+      }
+      sessionTokens.clear();
+      tokensBySession.clear();
+      whiteboardSessions.clear();
+      whiteboardIdsBySession.clear();
+      recallCorrelationIdsBySession.clear();
+      botSessions.clear();
+      pendingBotCreates.clear();
+      botCreateOperations.clear();
+      resumingSessions.clear();
+      sessionEpochs.clear();
+      recallEventHighWater.clear();
+      participantEventHighWater.clear();
+    })();
+
+    closePromise = new Promise<void>((resolve, reject) => {
+      let finished = false;
+      const finish = (error?: unknown): void => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(deadline);
+        if (error === undefined) resolve();
+        else reject(error);
+      };
+      const deadline = setTimeout(() => {
+        log({
+          level: "warn",
+          event: "runtime.shutdown_deadline_exceeded",
+          graceMs: config.shutdownGraceMs,
+          pendingProcessingTransitions: processingTransitions.size,
+          pendingBotCreates: botCreateOperations.size,
+          pendingRetirements: retiringSessions.size
+        });
+        finish(
+          new Error(
+            `Scout shutdown exceeded the ${config.shutdownGraceMs}ms cleanup deadline.`
+          )
+        );
+      }, config.shutdownGraceMs);
+      void shutdownWork.then(() => finish(), finish);
+    });
+    return closePromise;
+  };
+
   return {
     app,
     config,
     store,
     coordinator,
-    close: () => coordinator.close()
+    readiness,
+    close: closeRuntime
   };
 };
 
@@ -688,12 +1453,14 @@ export const startScoutServer = (
 ): { runtime: ScoutRuntime; server: Server } => {
   const runtime = createScoutRuntime(config);
   const server = runtime.app.listen(config.port, config.host, () => {
-    console.log(
-      `Scout v2 listening on http://${config.host}:${String(config.port)}`
-    );
-    console.log(
-      `Recall region: ${config.recall?.region ?? "not configured"}`
-    );
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: "info",
+      event: "server.listening",
+      host: config.host,
+      port: config.port,
+      recallRegion: config.recall?.region ?? "not configured"
+    }));
   });
   return { runtime, server };
 };
@@ -704,10 +1471,37 @@ const isEntrypoint =
 
 if (isEntrypoint) {
   const { runtime, server } = startScoutServer();
+  let shuttingDown = false;
   const shutdown = () => {
-    server.close(() => {
-      void runtime.close().finally(() => process.exit(0));
-    });
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const serverClosed = once(server, "close");
+    server.close();
+    const deadline = setTimeout(() => {
+      server.closeAllConnections();
+      console.error(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "warn",
+        event: "server.shutdown_deadline_exceeded",
+        graceMs: runtime.config.shutdownGraceMs
+      }));
+      process.exit(1);
+    }, runtime.config.shutdownGraceMs);
+    void Promise.all([serverClosed, runtime.close()])
+      .then(() => {
+        clearTimeout(deadline);
+        process.exit(0);
+      })
+      .catch((error: unknown) => {
+        clearTimeout(deadline);
+        console.error(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: "error",
+          event: "server.shutdown_failed",
+          detail: error instanceof Error ? error.message : String(error)
+        }));
+        process.exit(1);
+      });
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);

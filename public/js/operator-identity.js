@@ -3,7 +3,7 @@ import { sessionApiPath } from "./session-id.js";
 export function humanParticipants(participants = []) {
   const byIdentity = new Map();
   for (const participant of participants) {
-    if (participant?.isBot === true) continue;
+    if (participant?.isBot === true || participant?.present === false) continue;
     const key = participant.platformIdentity
       ? `platform:${participant.platformIdentity}`
       : `participant:${participant.id}`;

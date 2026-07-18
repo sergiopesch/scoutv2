@@ -3,9 +3,22 @@ export type MeetingUrlValidation =
   | { valid: false; message: string };
 
 export interface CreatedSession {
-  sessionId?: string;
+  sessionId: string;
   operatorUrl: string;
   whiteboardUrl: string;
+  mode: "live" | "rehearsal";
+}
+
+export interface ReadinessDependency {
+  ready: boolean;
+  detail?: string;
+}
+
+export interface ScoutReadiness {
+  ok: boolean;
+  mode: "live" | "rehearsal" | "unavailable";
+  codex: ReadinessDependency;
+  recall: ReadinessDependency;
 }
 
 export interface FetchResponse {
@@ -23,9 +36,18 @@ export type FetchSession = (
   }
 ) => Promise<FetchResponse>;
 
+export type FetchReadiness = (
+  input: string,
+  init: { headers: Record<string, string> }
+) => Promise<FetchResponse>;
+
 export function validateMeetingUrl(value: unknown): MeetingUrlValidation;
 
 export function createSession(
   meetingUrl: string,
   fetchImpl?: FetchSession
 ): Promise<CreatedSession>;
+
+export function loadReadiness(
+  fetchImpl?: FetchReadiness
+): Promise<ScoutReadiness>;

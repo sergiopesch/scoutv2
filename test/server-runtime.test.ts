@@ -9,15 +9,22 @@ import type {
   RecallBotConfig
 } from "../src/server/contracts.js";
 import { createScoutRuntime } from "../src/server/index.js";
+import { RecallBotCreationAmbiguousError } from "../src/server/recall/index.js";
 
 const baseConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   port: 3000,
   host: "127.0.0.1",
   analysisDelayMs: 1,
   analysisRerunDelayMs: 1,
+  analysisMaxBatchUtterances: 40,
+  analysisMaxBatchBytes: 48_000,
   maxAutomaticAnalysisTurnsPerSession: 20,
   maxActiveSessions: 3,
-  allowDevIngest: false,
+  maxSseConnections: 128,
+  maxSseConnectionsPerSession: 32,
+  sessionRetentionMs: 60_000,
+  shutdownGraceMs: 1_000,
+  allowDevIngest: true,
   codex: {
     binary: "codex",
     model: "gpt-5.6-sol",
@@ -26,13 +33,48 @@ const baseConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   ...overrides
 });
 
+const liveConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
+  baseConfig({
+    publicBaseUrl: "https://scout.example.dev",
+    recall: {
+      region: "us-west-2",
+      apiKey: "test-key",
+      apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
+      workspaceVerificationSecret: "whsec_workspace",
+      statusWebhookSecret: "whsec_status",
+      statusWebhookVerificationMode: "svix",
+      outputMode: "screenshare",
+      requestTimeoutMs: 1_000,
+      maxRetries: 0
+    },
+    ...overrides
+  });
+
 class FakeAnalyzer implements MeetingAnalyzer {
+  readonly resetCalls: string[] = [];
+  readinessReady = true;
+  readinessError?: Error;
+  resetError?: Error;
+  holdClose = false;
+
   async analyze(input: AnalyzeMeetingInput) {
+    const customerParticipantIds = new Set(
+      input.participants
+        .filter((participant) => participant.role === "customer")
+        .map((participant) => participant.id)
+    );
+    const customerEvidence = input.newUtterances.filter((utterance) =>
+      customerParticipantIds.has(utterance.participantId)
+    );
     return {
       threadId: input.threadId ?? "thread-test",
       graph: {
         ...input.currentGraph,
-        topic: { id: "billing", label: "Billing workflow" },
+        topic: {
+          id: "billing",
+          label: "Billing workflow",
+          evidenceUtteranceIds: customerEvidence.map((item) => item.id)
+        },
         nodes: [
           {
             id: "finance",
@@ -40,14 +82,26 @@ class FakeAnalyzer implements MeetingAnalyzer {
             label: "Finance",
             state: "current" as const,
             confidence: 1,
-            evidenceUtteranceIds: input.newUtterances.map((item) => item.id)
+            evidenceUtteranceIds: customerEvidence.map((item) => item.id)
           }
         ]
       }
     };
   }
 
-  async close(): Promise<void> {}
+  async resetSession(sessionId: string): Promise<void> {
+    if (this.resetError) throw this.resetError;
+    this.resetCalls.push(sessionId);
+  }
+
+  async checkReadiness() {
+    if (this.readinessError) throw this.readinessError;
+    return { ready: this.readinessReady };
+  }
+
+  async close(): Promise<void> {
+    if (this.holdClose) await new Promise<void>(() => {});
+  }
 }
 
 class FakeRecall implements RecallAdapter {
@@ -56,12 +110,39 @@ class FakeRecall implements RecallAdapter {
   failPause = false;
   holdPause = false;
   createCount = 0;
+  failCreate = false;
+  ambiguousCreate = false;
+  holdCreate = false;
+  readinessReady = true;
+  readinessError?: Error;
+  onResume?: () => Promise<void>;
+  readonly leaveCalls: string[] = [];
+  readonly correlationLookupCalls: string[] = [];
+  correlationMatches: string[] = [];
   private releaseHeldPause?: () => void;
+  private releaseHeldCreate?: () => void;
 
   async createBot(config: RecallBotConfig) {
     this.createCount += 1;
     this.createConfig = config;
+    if (this.failCreate) throw new Error("Recall create unavailable");
+    if (this.ambiguousCreate) {
+      throw new RecallBotCreationAmbiguousError(
+        config.correlationId,
+        "Recall bot creation outcome is ambiguous"
+      );
+    }
+    if (this.holdCreate) {
+      await new Promise<void>((resolve) => {
+        this.releaseHeldCreate = resolve;
+      });
+    }
     return { botId: "bot-test" };
+  }
+
+  async findBotsByCorrelationId(correlationId: string): Promise<string[]> {
+    this.correlationLookupCalls.push(correlationId);
+    return [...this.correlationMatches];
   }
 
   async pauseRecording(botId: string): Promise<void> {
@@ -76,10 +157,24 @@ class FakeRecall implements RecallAdapter {
 
   async resumeRecording(botId: string): Promise<void> {
     this.recordingActions.push(`resume:${botId}`);
+    await this.onResume?.();
+  }
+
+  async leaveBot(botId: string): Promise<void> {
+    this.leaveCalls.push(botId);
+  }
+
+  async checkReadiness() {
+    if (this.readinessError) throw this.readinessError;
+    return { ready: this.readinessReady };
   }
 
   releasePause(): void {
     this.releaseHeldPause?.();
+  }
+
+  releaseCreate(): void {
+    this.releaseHeldCreate?.();
   }
 
   verifyWebhook(): void {}
@@ -149,6 +244,29 @@ class FakeRecall implements RecallAdapter {
         }
       ];
     }
+    if (kind === "ended") {
+      return [
+        {
+          type: "bot.status",
+          botId: "bot-test",
+          status: "ended",
+          occurredAt: 20
+        }
+      ];
+    }
+    if (kind === "fatal") {
+      return [
+        {
+          type: "integration.error",
+          source: "recall",
+          code: "recording_permission_denied",
+          detail: "Recording permission was denied",
+          botId: "bot-test",
+          occurredAt: 10,
+          fatal: true
+        }
+      ];
+    }
     return [];
   }
 }
@@ -162,7 +280,7 @@ const eventually = async (check: () => boolean): Promise<void> => {
 };
 
 describe("Scout runtime", () => {
-  it("creates a usable local session while clearly reporting missing Recall configuration", async () => {
+  it("creates a truthful rehearsal session when dev ingest is explicitly enabled", async () => {
     const runtime = createScoutRuntime(baseConfig(), {
       analyzer: new FakeAnalyzer()
     });
@@ -172,10 +290,229 @@ describe("Scout runtime", () => {
       .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
       .expect(201);
 
+    await request(runtime.app).get("/livez").expect(200);
+    const ready = await request(runtime.app).get("/readyz").expect(200);
+    expect(ready.body).toMatchObject({ ok: true, mode: "rehearsal" });
+
     const snapshot = runtime.store.getRequired(response.body.sessionId);
-    expect(snapshot.recall.status).toBe("error");
-    expect(snapshot.recall.detail).toContain("PUBLIC_API_BASE_URL");
+    expect(response.body.mode).toBe("rehearsal");
+    expect(snapshot.status).toBe("listening");
+    expect(snapshot.recall).toMatchObject({
+      status: "idle",
+      detail: expect.stringContaining("rehearsal mode")
+    });
+    const metrics = await request(runtime.app).get("/metrics").expect(200);
+    expect(metrics.body).toMatchObject({
+      sessionsCreated: 1,
+      activeSessions: 1,
+      retainedSessions: 1
+    });
     await runtime.close();
+  });
+
+  it("returns bounded JSON errors without exposing stack traces for oversized bodies", async () => {
+    const runtime = createScoutRuntime(baseConfig(), {
+      analyzer: new FakeAnalyzer()
+    });
+    const response = await request(runtime.app)
+      .post("/webhooks/recall/status")
+      .set("content-type", "application/json")
+      .send(`{"oversized":"${"x".repeat(1_100_000)}"}`)
+      .expect(413);
+
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(response.body).toEqual({ error: "request body too large" });
+    expect(response.text).not.toContain("raw-body");
+    expect(response.text).not.toContain(process.cwd());
+    await runtime.close();
+  });
+
+  it("rejects live session creation before allocating capacity when dependencies are absent", async () => {
+    const runtime = createScoutRuntime(baseConfig({ allowDevIngest: false }), {
+      analyzer: new FakeAnalyzer()
+    });
+
+    const readiness = await request(runtime.app).get("/readyz").expect(503);
+    expect(readiness.body).toMatchObject({
+      ok: false,
+      mode: "unavailable",
+      recall: { ready: false }
+    });
+    await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(503);
+    expect(runtime.store.list()).toEqual([]);
+    await runtime.close();
+  });
+
+  it("rolls back a failed Recall bot creation without poisoning session capacity", async () => {
+    const recall = new FakeRecall();
+    recall.failCreate = true;
+    const runtime = createScoutRuntime(
+      baseConfig({
+        maxActiveSessions: 1,
+        publicBaseUrl: "https://scout.example.dev",
+        recall: {
+          region: "us-west-2",
+          apiKey: "test-key",
+          apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
+          workspaceVerificationSecret: "whsec_workspace",
+          statusWebhookSecret: "whsec_status",
+          statusWebhookVerificationMode: "svix",
+          outputMode: "screenshare",
+          requestTimeoutMs: 1_000,
+          maxRetries: 0
+        }
+      }),
+      { analyzer: new FakeAnalyzer(), recall, statusRecall: recall }
+    );
+
+    await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(502);
+    expect(runtime.store.list()).toEqual([]);
+
+    recall.failCreate = false;
+    await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/456" })
+      .expect(201);
+    expect(runtime.store.list()).toHaveLength(1);
+    await runtime.close();
+  });
+
+  it("retains and retires an ambiguously created bot by a non-capability correlation ID", async () => {
+    const recall = new FakeRecall();
+    recall.ambiguousCreate = true;
+    recall.correlationMatches = ["bot-reconciled"];
+    const runtime = createScoutRuntime(liveConfig(), {
+      analyzer: new FakeAnalyzer(),
+      recall,
+      statusRecall: recall
+    });
+
+    const response = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/ambiguous-create" })
+      .expect(502);
+
+    expect(response.body).toMatchObject({ cleanupPending: true });
+    const sessionId = response.body.sessionId as string;
+    const correlationId = recall.createConfig?.correlationId;
+    expect(correlationId).toBeTruthy();
+    expect(correlationId).not.toBe(sessionId);
+    expect(recall.createConfig?.sessionToken).not.toBe(correlationId);
+    expect(runtime.store.getRequired(sessionId)).toMatchObject({
+      status: "error",
+      recall: { status: "error" }
+    });
+
+    await runtime.close();
+    expect(recall.correlationLookupCalls).toEqual([correlationId]);
+    expect(recall.leaveCalls).toEqual(["bot-reconciled"]);
+    expect(runtime.store.get(sessionId)).toBeUndefined();
+  });
+
+  it("retries an early dashboard status after the create response maps its bot", async () => {
+    const recall = new FakeRecall();
+    recall.holdCreate = true;
+    const runtime = createScoutRuntime(liveConfig(), {
+      analyzer: new FakeAnalyzer(),
+      recall,
+      statusRecall: recall
+    });
+
+    const creation = request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/early-status" })
+      .then((response) => response);
+    await eventually(() => Boolean(recall.createConfig));
+
+    await request(runtime.app)
+      .post("/webhooks/recall/status")
+      .set("content-type", "application/json")
+      .send({ kind: "ended" })
+      .expect(503);
+
+    recall.releaseCreate();
+    const created = await creation;
+    expect(created.status).toBe(201);
+    await request(runtime.app)
+      .post("/webhooks/recall/status")
+      .set("content-type", "application/json")
+      .send({ kind: "ended" })
+      .expect(204);
+    expect(runtime.store.getRequired(created.body.sessionId).status).toBe("ended");
+    await runtime.close();
+  });
+
+  it("leaves a bot that resolves during shutdown instead of publishing a session", async () => {
+    const recall = new FakeRecall();
+    recall.holdCreate = true;
+    const runtime = createScoutRuntime(liveConfig(), {
+      analyzer: new FakeAnalyzer(),
+      recall,
+      statusRecall: recall
+    });
+    const creation = request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/shutdown-race" })
+      .then((response) => response);
+    await eventually(() => Boolean(recall.createConfig));
+
+    const closing = runtime.close();
+    recall.releaseCreate();
+    const [created] = await Promise.all([creation, closing.then(() => undefined)]);
+
+    expect(created.status).toBe(503);
+    expect(recall.leaveCalls).toEqual(["bot-test"]);
+    expect(runtime.store.list()).toEqual([]);
+  });
+
+  it("fails readiness closed without healthy, resettable dependencies", async () => {
+    for (const failure of ["codex", "recall", "throw", "missing-check"] as const) {
+      const analyzer = new FakeAnalyzer();
+      const recall = new FakeRecall();
+      if (failure === "codex") analyzer.readinessReady = false;
+      if (failure === "recall") recall.readinessReady = false;
+      if (failure === "throw") analyzer.readinessError = new Error("preflight failed");
+      const dependency = failure === "missing-check"
+        ? ({
+            analyze: analyzer.analyze.bind(analyzer),
+            resetSession: analyzer.resetSession.bind(analyzer),
+            close: analyzer.close.bind(analyzer)
+          } as MeetingAnalyzer)
+        : analyzer;
+      const runtime = createScoutRuntime(liveConfig(), {
+        analyzer: dependency,
+        recall,
+        statusRecall: recall
+      });
+
+      await request(runtime.app).get("/readyz").expect(503);
+      await request(runtime.app)
+        .post("/api/sessions")
+        .send({ meetingUrl: "https://zoom.example.invalid/j/not-ready" })
+        .expect(503);
+      expect(runtime.store.list()).toEqual([]);
+      await runtime.close();
+    }
+  });
+
+  it("bounds runtime close when an integration never settles", async () => {
+    const analyzer = new FakeAnalyzer();
+    analyzer.holdClose = true;
+    const runtime = createScoutRuntime(
+      baseConfig({ shutdownGraceMs: 20 }),
+      { analyzer }
+    );
+    const startedAt = performance.now();
+
+    await expect(runtime.close()).rejects.toThrow(/cleanup deadline/);
+
+    expect(performance.now() - startedAt).toBeLessThan(250);
   });
 
   it("routes verified real-time and dashboard events to the correct session", async () => {
@@ -188,7 +525,10 @@ describe("Scout runtime", () => {
         apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
         workspaceVerificationSecret: "whsec_workspace",
         statusWebhookSecret: "whsec_status",
-        outputMode: "screenshare"
+        statusWebhookVerificationMode: "svix",
+        outputMode: "screenshare",
+        requestTimeoutMs: 1_000,
+        maxRetries: 0
       }
     });
     const runtime = createScoutRuntime(config, {
@@ -205,6 +545,12 @@ describe("Scout runtime", () => {
     const sessionId = created.body.sessionId as string;
     const token = recall.createConfig?.sessionToken;
     expect(token).toBeTruthy();
+    expect(recall.createConfig?.correlationId).toBeTruthy();
+    expect(recall.createConfig?.correlationId).not.toBe(sessionId);
+    expect(recall.createConfig?.correlationId).not.toBe(token);
+    expect(recall.createConfig?.botName).toMatch(
+      /^Live Architect · [A-Za-z0-9_-]{11}$/
+    );
 
     await request(runtime.app)
       .post(`/webhooks/recall/${token}`)
@@ -223,9 +569,13 @@ describe("Scout runtime", () => {
     expect(interim.analysis.pendingUtteranceCount).toBe(0);
     expect(interim.revision).toBe(0);
 
+    runtime.store.upsertParticipant(sessionId, {
+      id: "operator-1",
+      name: "Morgan"
+    });
     await request(runtime.app)
-      .put(`/api/sessions/${sessionId}/participants/person-1/role`)
-      .send({ role: "customer" })
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "operator-1" })
       .expect(200);
 
     await request(runtime.app)
@@ -248,15 +598,86 @@ describe("Scout runtime", () => {
     expect(snapshot.recall.status).toBe("active");
     expect(snapshot.graph.topic.label).toBe("Billing workflow");
 
-    const whiteboard = await request(runtime.app)
+    const whiteboardId = String(created.body.whiteboardUrl).split("/").at(-1)!;
+    expect(whiteboardId).not.toBe(sessionId);
+    await request(runtime.app)
       .get(`/api/whiteboards/${sessionId}`)
+      .expect(404);
+    await request(runtime.app)
+      .put(`/api/sessions/${whiteboardId}/operator`)
+      .send({ participantId: "operator-1" })
+      .expect(404);
+    const whiteboard = await request(runtime.app)
+      .get(`/api/whiteboards/${whiteboardId}`)
       .expect(200);
+    expect(whiteboard.body.id).toBe(whiteboardId);
     expect(whiteboard.body.graph.topic.label).toBe("Billing workflow");
+    expect(whiteboard.body.graph.topic).not.toHaveProperty(
+      "evidenceUtteranceIds"
+    );
+    expect(whiteboard.body.graph.nodes[0]).not.toHaveProperty(
+      "evidenceUtteranceIds"
+    );
+    expect(JSON.stringify(whiteboard.body)).not.toContain("utt-live-1");
     expect(whiteboard.body).not.toHaveProperty("meetingUrl");
     expect(whiteboard.body).not.toHaveProperty("participants");
     expect(whiteboard.body).not.toHaveProperty("utterances");
     expect(whiteboard.body).not.toHaveProperty("recall");
     expect(whiteboard.body).not.toHaveProperty("codex");
+    await runtime.close();
+  });
+
+  it("preserves a fatal Recall terminal state across late finals and done events", async () => {
+    const recall = new FakeRecall();
+    const runtime = createScoutRuntime(
+      baseConfig({
+        publicBaseUrl: "https://scout.example.dev",
+        recall: {
+          region: "us-west-2",
+          apiKey: "test-key",
+          apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
+          workspaceVerificationSecret: "whsec_workspace",
+          statusWebhookSecret: "whsec_status",
+          statusWebhookVerificationMode: "svix",
+          outputMode: "screenshare",
+          requestTimeoutMs: 1_000,
+          maxRetries: 0
+        }
+      }),
+      { analyzer: new FakeAnalyzer(), recall, statusRecall: recall }
+    );
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    const sessionId = created.body.sessionId as string;
+    const token = recall.createConfig?.sessionToken;
+    expect(token).toBeTruthy();
+
+    await request(runtime.app)
+      .post(`/webhooks/recall/${token}`)
+      .set("content-type", "application/json")
+      .send({ kind: "fatal" })
+      .expect(204);
+    await request(runtime.app)
+      .post(`/webhooks/recall/${token}`)
+      .set("content-type", "application/json")
+      .send({ kind: "transcript" })
+      .expect(204);
+    await request(runtime.app)
+      .post("/webhooks/recall/status")
+      .set("content-type", "application/json")
+      .send({ kind: "ended" })
+      .expect(204);
+
+    expect(runtime.store.getRequired(sessionId)).toMatchObject({
+      status: "error",
+      recall: {
+        status: "error",
+        detail: expect.stringContaining("recording_permission_denied")
+      }
+    });
+    expect(runtime.store.getRequired(sessionId).utterances).toHaveLength(1);
     await runtime.close();
   });
 
@@ -269,6 +690,24 @@ describe("Scout runtime", () => {
       .send({})
       .expect(404);
     await disabled.close();
+  });
+
+  it("never exposes rehearsal ingest when live Recall mode is configured", async () => {
+    const recall = new FakeRecall();
+    const runtime = createScoutRuntime(
+      liveConfig({ allowDevIngest: true }),
+      { analyzer: new FakeAnalyzer(), recall, statusRecall: recall }
+    );
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/live" })
+      .expect(201);
+
+    await request(runtime.app)
+      .post(`/api/dev/sessions/${created.body.sessionId}/utterances`)
+      .send({})
+      .expect(404);
+    await runtime.close();
   });
 
   it("limits concurrently active sessions before creating another bot", async () => {
@@ -300,7 +739,10 @@ describe("Scout runtime", () => {
         apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
         workspaceVerificationSecret: "whsec_workspace",
         statusWebhookSecret: "whsec_status",
-        outputMode: "screenshare"
+        statusWebhookVerificationMode: "svix",
+        outputMode: "screenshare",
+        requestTimeoutMs: 1_000,
+        maxRetries: 0
       }
     });
     const runtime = createScoutRuntime(config, {
@@ -322,9 +764,13 @@ describe("Scout runtime", () => {
       .set("Content-Type", "application/json")
       .send(JSON.stringify({ kind: "transcript" }))
       .expect(204);
+    runtime.store.upsertParticipant(sessionId, {
+      id: "operator-1",
+      name: "Morgan"
+    });
     await request(runtime.app)
-      .put(`/api/sessions/${sessionId}/participants/person-1/role`)
-      .send({ role: "customer" })
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "operator-1" })
       .expect(200);
     await eventually(() => runtime.store.getRequired(sessionId).revision === 1);
     const beforePause = runtime.store.getRequired(sessionId);
@@ -358,6 +804,13 @@ describe("Scout runtime", () => {
       .expect(200);
     expect(refreshed.body.processing.paused).toBe(true);
 
+    recall.onResume = async () => {
+      await request(runtime.app)
+        .post(`/webhooks/recall/${token}`)
+        .set("Content-Type", "application/json")
+        .send(JSON.stringify({ kind: "second-transcript" }))
+        .expect(204);
+    };
     await request(runtime.app)
       .put(`/api/sessions/${sessionId}/processing`)
       .send({ paused: false })
@@ -366,12 +819,6 @@ describe("Scout runtime", () => {
       "pause:bot-test",
       "resume:bot-test"
     ]);
-
-    await request(runtime.app)
-      .post(`/webhooks/recall/${token}`)
-      .set("Content-Type", "application/json")
-      .send(JSON.stringify({ kind: "second-transcript" }))
-      .expect(204);
     await eventually(() => runtime.store.getRequired(sessionId).revision === 2);
     const resumed = runtime.store.getRequired(sessionId);
     expect(resumed.id).toBe(beforePause.id);
@@ -394,7 +841,10 @@ describe("Scout runtime", () => {
         apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
         workspaceVerificationSecret: "whsec_workspace",
         statusWebhookSecret: "whsec_status",
-        outputMode: "screenshare"
+        statusWebhookVerificationMode: "svix",
+        outputMode: "screenshare",
+        requestTimeoutMs: 1_000,
+        maxRetries: 0
       }
     });
     const runtime = createScoutRuntime(config, {
@@ -490,6 +940,104 @@ describe("Scout runtime", () => {
     await runtime.close();
   });
 
+  it("reports and retries a failed Codex quarantine before roles become usable", async () => {
+    const analyzer = new FakeAnalyzer();
+    const runtime = createScoutRuntime(baseConfig(), { analyzer });
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/reset-failure" })
+      .expect(201);
+    const sessionId = created.body.sessionId as string;
+    runtime.store.upsertParticipant(sessionId, { id: "operator", name: "Morgan" });
+    runtime.store.upsertParticipant(sessionId, { id: "customer", name: "Taylor" });
+    analyzer.resetError = new Error("quarantine unavailable");
+
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "operator" })
+      .expect(409);
+    expect(runtime.store.getRequired(sessionId).analysis).toMatchObject({
+      status: "error",
+      blockedReason: expect.stringContaining("Codex reset failed")
+    });
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "operator" })
+      .expect(409);
+
+    analyzer.resetError = undefined;
+    const recovered = await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "operator" })
+      .expect(200);
+    expect(recovered.body.operatorParticipantId).toBe("operator");
+    expect(recovered.body.analysis.status).not.toBe("error");
+    await runtime.close();
+  });
+
+  it("atomically rebuilds analysis from all finals after operator correction", async () => {
+    const analyzer = new FakeAnalyzer();
+    const runtime = createScoutRuntime(
+      baseConfig({ analysisDelayMs: 10_000, analysisRerunDelayMs: 10_000 }),
+      { analyzer }
+    );
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    const sessionId = created.body.sessionId as string;
+    runtime.store.upsertParticipant(sessionId, { id: "person-1", name: "Morgan" });
+    runtime.store.upsertParticipant(sessionId, { id: "person-2", name: "Taylor" });
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "person-1" })
+      .expect(200);
+    for (const [id, participantId, participantName] of [
+      ["operator-1", "person-1", "Morgan"],
+      ["customer-1", "person-2", "Taylor"]
+    ] as const) {
+      runtime.store.appendUtterance(sessionId, {
+        id,
+        sequence: runtime.store.getRequired(sessionId).utterances.length + 1,
+        participantId,
+        participantName,
+        text: `${participantName} described the billing workflow.`,
+        startedAt: 1,
+        endedAt: 2,
+        finalized: true
+      });
+    }
+    await request(runtime.app)
+      .post(`/api/sessions/${sessionId}/analyze`)
+      .expect(202);
+    await eventually(() => runtime.store.getRequired(sessionId).revision === 1);
+    expect(
+      runtime.store.getRequired(sessionId).graph.nodes[0]?.evidenceUtteranceIds
+    ).toEqual(["customer-1"]);
+
+    const corrected = await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "person-2" })
+      .expect(200);
+    expect(corrected.body).toMatchObject({
+      revision: 0,
+      operatorParticipantId: "person-2",
+      utterances: [{ id: "operator-1" }, { id: "customer-1" }],
+      graph: { nodes: [] },
+      codex: { status: "idle" }
+    });
+
+    await request(runtime.app)
+      .post(`/api/sessions/${sessionId}/analyze`)
+      .expect(202);
+    await eventually(() => runtime.store.getRequired(sessionId).revision === 1);
+    expect(
+      runtime.store.getRequired(sessionId).graph.nodes[0]?.evidenceUtteranceIds
+    ).toEqual(["operator-1"]);
+    expect(analyzer.resetCalls).toEqual([sessionId, sessionId]);
+    await runtime.close();
+  });
+
   it("resets context through the API without replacing the Recall bot or pause state", async () => {
     const recall = new FakeRecall();
     const config = baseConfig({
@@ -500,7 +1048,10 @@ describe("Scout runtime", () => {
         apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
         workspaceVerificationSecret: "whsec_workspace",
         statusWebhookSecret: "whsec_status",
-        outputMode: "screenshare"
+        statusWebhookVerificationMode: "svix",
+        outputMode: "screenshare",
+        requestTimeoutMs: 1_000,
+        maxRetries: 0
       }
     });
     const runtime = createScoutRuntime(config, {
@@ -538,7 +1089,11 @@ describe("Scout runtime", () => {
     });
     runtime.store.acceptGraph(sessionId, {
       ...runtime.store.getRequired(sessionId).graph,
-      topic: { id: "billing", label: "Billing workflow" }
+      topic: {
+        id: "billing",
+        label: "Billing workflow",
+        evidenceUtteranceIds: ["utt-1"]
+      }
     });
     recall.holdPause = true;
     const pauseRequest = request(runtime.app)

@@ -14,6 +14,14 @@ import {
   operatorIdentityView,
   selectOperator
 } from "./operator-identity.js";
+import { reconcileKeyedChildren } from "./keyed-list.js";
+import {
+  analysisActionView,
+  identitySelectionView,
+  isTerminalStatus,
+  sessionStreamView,
+  shouldAcceptSnapshot
+} from "./ui-state.js";
 
 const elements = {
   topic: document.querySelector("#meeting-heading"),
@@ -52,8 +60,10 @@ let processingSubmitting = false;
 let processingRequestedPaused;
 let streamConnectionState = "connecting";
 let resetting = false;
-let operatorSelectingId;
+let operatorSelection;
+let operatorSelectionTimer;
 let renderedTranscriptSignature = "";
+let stopStream;
 
 function text(value, fallback = "—") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -87,14 +97,23 @@ function integrationRow(name, integration) {
 }
 
 function renderIntegrations(next) {
+  const terminal = isTerminalStatus(next.status);
   elements.integrations.replaceChildren(
     integrationRow("Recall", next.recall),
     integrationRow("Codex", next.codex),
     integrationRow("Processing", {
-      status: next.processing?.paused ? "paused" : "active",
-      detail: next.processing?.paused
-        ? "Incoming transcript events are discarded"
-        : "Live transcription and automatic analysis enabled"
+      status: next.status === "error"
+        ? "error"
+        : terminal
+          ? "idle"
+          : next.processing?.paused
+            ? "paused"
+            : "active",
+      detail: next.status === "ended"
+        ? "Meeting ended; the accepted transcript and map are retained"
+        : next.processing?.paused
+          ? "Incoming transcript events are discarded"
+          : "Live transcription and automatic analysis enabled"
     }),
     integrationRow("Analysis", {
       status: next.analysis?.status,
@@ -106,62 +125,97 @@ function renderIntegrations(next) {
 }
 
 function renderStreamState() {
-  const paused = snapshot?.processing?.paused === true;
-  elements.streamDot.dataset.state = paused ? "paused" : streamConnectionState;
-  elements.streamState.textContent = paused
-    ? "Processing paused"
-    : streamConnectionState === "live"
-      ? "Updates live"
-      : streamConnectionState === "reconnecting"
-        ? "Reconnecting"
-        : "Connecting";
+  const view = sessionStreamView(snapshot, streamConnectionState);
+  elements.streamDot.dataset.state = view.state;
+  elements.streamState.textContent = view.label;
+}
+
+function createParticipantRow(participant) {
+  if (participant.empty) {
+    const empty = document.createElement("li");
+    empty.className = "empty-copy";
+    return empty;
+  }
+  const row = document.createElement("li");
+  row.className = "participant-row";
+    const avatar = document.createElement("span");
+    avatar.className = "participant-avatar";
+    const copy = document.createElement("div");
+    copy.className = "participant-copy";
+    const name = document.createElement("span");
+    name.className = "participant-name";
+    const role = document.createElement("span");
+    role.className = "participant-role-label";
+    copy.append(name, role);
+    const button = document.createElement("button");
+    button.className = "identity-button";
+    button.type = "button";
+    button.addEventListener("click", () => {
+      const participantId = button.dataset.participantId;
+      if (participantId) void chooseOperator(participantId);
+    });
+    row.append(avatar, copy, button);
+    return row;
+  }
+
+function updateParticipantRow(row, participant) {
+  if (participant.empty) {
+    row.textContent = "Waiting for participants to join.";
+    return;
+  }
+  const avatar = row.querySelector(".participant-avatar");
+  const name = row.querySelector(".participant-name");
+  const role = row.querySelector(".participant-role-label");
+  const button = row.querySelector(".identity-button");
+  const selectionState =
+    operatorSelection?.participantId === participant.id
+      ? operatorSelection.phase
+      : "idle";
+  row.dataset.role = participant.selected ? "operator" : participant.role;
+  row.dataset.selectionState = selectionState;
+  row.setAttribute("aria-busy", String(selectionState === "pending"));
+  avatar.textContent = initials(participant.name);
+  name.textContent = text(participant.name, "Unknown participant");
+  role.textContent = `${participant.roleLabel}${
+    selectionState === "pending"
+      ? " · Saving"
+      : selectionState === "saved"
+        ? " · Saved"
+        : selectionState === "error"
+          ? " · Save failed"
+          : ""
+  }`;
+  button.dataset.participantId = participant.id;
+  button.textContent = participant.buttonText;
+  button.disabled =
+    participant.disabled ||
+    snapshot?.status === "error" ||
+    streamConnectionState === "reconnecting";
+  button.setAttribute("aria-pressed", String(participant.selected));
 }
 
 function renderParticipants(next) {
   const participants = operatorIdentityView(
     next.participants,
     next.operatorParticipantId,
-    operatorSelectingId
+    operatorSelection?.phase === "pending"
+      ? operatorSelection.participantId
+      : undefined
   );
   elements.participantCount.textContent = `${participants.length} present`;
-  elements.identityStatus.textContent = next.operatorParticipantId
-    ? "Operator selected. Everyone else is treated as a client."
-    : participants.length
-      ? "Choose your meeting identity."
-      : "Waiting for people to join.";
-  const rows = participants.map((participant) => {
-    const row = document.createElement("li");
-    row.className = "participant-row";
-    row.dataset.role = participant.selected ? "operator" : participant.role;
-    const avatar = document.createElement("span");
-    avatar.className = "participant-avatar";
-    avatar.textContent = initials(participant.name);
-    const copy = document.createElement("div");
-    copy.className = "participant-copy";
-    const name = document.createElement("span");
-    name.className = "participant-name";
-    name.textContent = text(participant.name, "Unknown participant");
-    const role = document.createElement("span");
-    role.className = "participant-role-label";
-    role.textContent = participant.roleLabel;
-    copy.append(name, role);
-    const button = document.createElement("button");
-    button.className = "identity-button";
-    button.type = "button";
-    button.textContent = participant.buttonText;
-    button.disabled = participant.disabled;
-    button.setAttribute("aria-pressed", String(participant.selected));
-    button.addEventListener("click", () => chooseOperator(participant.id));
-    row.append(avatar, copy, button);
-    return row;
+  const identityView = identitySelectionView(next, operatorSelection);
+  elements.identityStatus.dataset.state = identityView.state;
+  elements.identityStatus.textContent = identityView.text;
+  const rows = participants.length > 0
+    ? participants
+    : [{ id: "empty", empty: true }];
+  reconcileKeyedChildren(elements.participants, rows, {
+    keyOf: (participant) => participant.empty
+      ? "empty"
+      : `participant:${participant.id}`,
+    create: createParticipantRow,
+    update: updateParticipantRow
   });
-  if (!rows.length) {
-    const empty = document.createElement("li");
-    empty.className = "empty-copy";
-    empty.textContent = "Waiting for participants to join.";
-    rows.push(empty);
-  }
-  elements.participants.replaceChildren(...rows);
 }
 
 function renderTranscript(utterances = []) {
@@ -191,7 +245,8 @@ function renderTranscript(utterances = []) {
     const time = document.createElement("time");
     if (
       Number.isFinite(turn.startedAt) &&
-      turn.startedAt >= 100_000_000_000
+      turn.startedAt >= 100_000_000_000 &&
+      Number.isFinite(new Date(turn.startedAt).getTime())
     ) {
       time.dateTime = new Date(turn.startedAt).toISOString();
     }
@@ -244,7 +299,26 @@ function renderEvidence(ids = []) {
   elements.evidence.replaceChildren(...chips);
 }
 
-function render(next) {
+function render(next, { force = false } = {}) {
+  if (!force && !shouldAcceptSnapshot(snapshot, next)) return;
+  if (operatorSelection?.phase === "saved") {
+    const conflicts =
+      next.operatorParticipantId !== operatorSelection.participantId;
+    if (
+      !force &&
+      conflicts &&
+      Number(next.updatedAt ?? 0) <=
+        Number(operatorSelection.confirmedUpdatedAt ?? 0)
+    ) {
+      return;
+    }
+    if (conflicts) {
+      if (operatorSelectionTimer !== undefined) {
+        clearTimeout(operatorSelectionTimer);
+      }
+      operatorSelection = undefined;
+    }
+  }
   snapshot = next;
   renderStreamState();
   elements.topic.textContent = text(next.graph?.topic?.label, "Business discovery");
@@ -267,7 +341,8 @@ function render(next) {
   const processingView = processingControlView(
     next.processing,
     processingSubmitting,
-    processingRequestedPaused
+    processingRequestedPaused,
+    next.status
   );
   elements.processingCard.dataset.paused = String(processingView.paused);
   elements.processingState.textContent = processingView.statusText;
@@ -276,46 +351,64 @@ function render(next) {
     "aria-pressed",
     String(processingView.paused)
   );
-  elements.processingButton.disabled = processingSubmitting || resetting;
+  elements.processingButton.disabled = processingView.disabled || resetting;
   elements.processingNote.textContent = processingView.note;
-  const busy =
-    submitting ||
+  const terminal = isTerminalStatus(next.status);
+  elements.processingButton.disabled =
+    processingView.disabled ||
     resetting ||
-    processingView.paused ||
-    ["queued", "running"].includes(next.analysis?.status);
-  elements.analyzeButton.disabled = busy;
-  elements.analyzeButton.textContent = processingView.paused
-    ? "Analysis paused"
-    : busy
-      ? "Analysis in progress…"
-      : "Analyze now";
-  elements.resetButton.disabled = resetting || processingSubmitting;
+    streamConnectionState === "reconnecting";
+  const actionView = analysisActionView(next, {
+    submitting,
+    resetting,
+    connectionState: streamConnectionState
+  });
+  elements.analyzeButton.disabled = actionView.disabled;
+  elements.analyzeButton.textContent = actionView.buttonText;
+  elements.resetButton.disabled =
+    resetting ||
+    processingSubmitting ||
+    !snapshot ||
+    terminal ||
+    streamConnectionState === "reconnecting";
   elements.resetButton.textContent = resetting
     ? "Clearing conversation…"
     : "Clear conversation";
-  elements.actionNote.textContent = next.analysis?.lastError
-    ? next.analysis.lastError
-    : processingView.paused
-      ? "Continue live processing before starting another analysis."
-      : next.analysis?.blockedReason
-        ? next.analysis.blockedReason
-        : next.analysis?.throttled
-          ? `Automatic analysis budget reached (${next.analysis?.automaticTurnsStarted ?? 0}/${next.analysis?.automaticTurnBudget ?? 0}). Analyze now remains available.`
-          : "Sends finalized utterances not yet included in the accepted graph.";
+  elements.actionNote.textContent = actionView.note;
+}
+
+function markOperatorSelectionSaved(participantId, confirmedUpdatedAt) {
+  operatorSelection = {
+    participantId,
+    phase: "saved",
+    confirmedUpdatedAt
+  };
+  operatorSelectionTimer = setTimeout(() => {
+    if (operatorSelection?.phase === "saved") {
+      operatorSelection = undefined;
+      if (snapshot) render(snapshot, { force: true });
+    }
+  }, 3_000);
 }
 
 async function chooseOperator(participantId) {
-  if (!sessionId || operatorSelectingId) return;
-  operatorSelectingId = participantId;
+  if (!sessionId || operatorSelection?.phase === "pending") return;
+  if (operatorSelectionTimer !== undefined) clearTimeout(operatorSelectionTimer);
+  operatorSelection = { participantId, phase: "pending" };
   elements.error.hidden = true;
-  if (snapshot) render(snapshot);
+  if (snapshot) render(snapshot, { force: true });
   try {
-    render(await selectOperator(sessionId, participantId));
+    const updated = await selectOperator(sessionId, participantId);
+    markOperatorSelectionSaved(participantId, updated.updatedAt);
+    render(updated);
   } catch (error) {
-    showError(error);
-  } finally {
-    operatorSelectingId = undefined;
-    if (snapshot) render(snapshot);
+    if (snapshot?.operatorParticipantId === participantId) {
+      markOperatorSelectionSaved(participantId, snapshot.updatedAt);
+    } else {
+      operatorSelection = { participantId, phase: "error" };
+      showError(error);
+    }
+    if (snapshot) render(snapshot, { force: true });
   }
 }
 
@@ -427,22 +520,40 @@ async function start() {
     elements.transcript.scrollTop = elements.transcript.scrollHeight;
     elements.newTranscript.hidden = true;
   });
+  elements.analyzeButton.disabled = true;
+  elements.processingButton.disabled = true;
+  elements.resetButton.disabled = true;
+  const receiveSnapshot = (next) => {
+    elements.error.hidden = true;
+    render(next);
+    if (next.status === "error") stopStream?.();
+  };
   try {
-    render(await loadSession(sessionId));
-    subscribeToSession(sessionId, {
-      onSnapshot: render,
+    stopStream = subscribeToSession(sessionId, {
+      onSnapshot: receiveSnapshot,
       onConnection(state) {
         streamConnectionState = state;
         renderStreamState();
+        if (snapshot) render(snapshot, { force: true });
       },
       onError: showError
     });
+    render(await loadSession(sessionId));
   } catch (error) {
-    showError(error);
-    elements.analyzeButton.disabled = true;
-    elements.processingButton.disabled = true;
-    elements.resetButton.disabled = true;
+    if (!snapshot) {
+      showError(error);
+      elements.streamDot.dataset.state = "error";
+      elements.streamState.textContent = "Meeting unavailable";
+      elements.analyzeButton.disabled = true;
+      elements.processingButton.disabled = true;
+      elements.resetButton.disabled = true;
+    }
   }
 }
+
+window.addEventListener("pagehide", () => {
+  stopStream?.();
+  if (operatorSelectionTimer !== undefined) clearTimeout(operatorSelectionTimer);
+});
 
 start();
