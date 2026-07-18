@@ -36,7 +36,10 @@ export interface Participant {
   name: string;
   platform?: string;
   joinedAt?: number;
+  role?: ParticipantRole;
 }
+
+export type ParticipantRole = "customer" | "operator";
 
 export interface Utterance {
   id: string;
@@ -142,6 +145,10 @@ export interface SessionSnapshot {
   analysis: {
     status: "idle" | "queued" | "running" | "error";
     pendingUtteranceCount: number;
+    automaticTurnsStarted?: number;
+    automaticTurnBudget?: number;
+    throttled?: boolean;
+    blockedReason?: string;
     lastCompletedAt?: number;
     lastError?: string;
   };

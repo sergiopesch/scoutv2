@@ -135,7 +135,7 @@ const graph: BusinessGraph = {
 const analyzeInput = () => ({
   sessionId: "session-1",
   currentGraph: emptyBusinessGraph(),
-  participants: [{ id: "participant-1", name: "Alex" }],
+  participants: [{ id: "participant-1", name: "Alex", role: "customer" as const }],
   newUtterances: [utterance]
 });
 
@@ -186,6 +186,9 @@ describe("CodexMeetingAnalyzer", () => {
     expect(JSON.stringify(turnStart?.params.input)).toContain(utterance.id);
     expect(JSON.stringify(turnStart?.params.input)).toContain(
       "CURRENT ACCEPTED GRAPH"
+    );
+    expect(JSON.stringify(turnStart?.params.input)).toContain(
+      "NEW FINALIZED CUSTOMER EVIDENCE"
     );
     expect(client.initializeCount).toBe(1);
     await analyzer.close();

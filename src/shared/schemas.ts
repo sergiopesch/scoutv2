@@ -130,3 +130,29 @@ export const validateGraphReferences = (
 
   return errors;
 };
+
+/** Every business finding must be grounded in a designated customer's words. */
+export const validateCustomerEvidence = (
+  graph: BusinessGraph,
+  customerUtteranceIds: Set<string>
+): string[] => {
+  const errors: string[] = [];
+  const evidenceGroups = [
+    ...graph.nodes.map((item) => [item.id, item.evidenceUtteranceIds] as const),
+    ...graph.edges.map((item) => [item.id, item.evidenceUtteranceIds] as const),
+    ...graph.pains.map((item) => [item.id, item.evidenceUtteranceIds] as const),
+    ...graph.contradictions.map(
+      (item) => [item.id, item.evidenceUtteranceIds] as const
+    ),
+    ...(graph.suggestedQuestion
+      ? [["suggestedQuestion", graph.suggestedQuestion.evidenceUtteranceIds] as const]
+      : [])
+  ];
+
+  for (const [id, evidence] of evidenceGroups) {
+    if (evidence.some((utteranceId) => !customerUtteranceIds.has(utteranceId))) {
+      errors.push(`${id} must cite designated-customer evidence only.`);
+    }
+  }
+  return errors;
+};

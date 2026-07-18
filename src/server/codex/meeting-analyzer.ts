@@ -94,6 +94,7 @@ type TurnWaiter = {
 const ANALYST_INSTRUCTIONS = `You are Live Architect, a meeting discovery analyst.
 For every turn, return one complete BusinessGraph matching the supplied JSON schema.
 Use only the supplied utterance IDs as evidence. Preserve previously supported facts unless new evidence corrects them.
+Build a reliable model of the prospective customer's business. Operator and interviewer words are context only: do not turn their questions, examples, assumptions, or leading suggestions into customer pains, goals, constraints, contradictions, or other graph claims. Every graph finding must cite designated-customer utterances. A customer may confirm or elaborate on an operator suggestion, but cite the customer's utterance, never the suggestion.
 Distinguish current, desired, hypothesis, and unknown states. Do not invent participant identities.
 Keep labels concise for a 1280x720 workflow diagram. Return structured output only.`;
 
@@ -208,20 +209,39 @@ const buildAnalysisPrompt = (
   currentGraph: BusinessGraph,
   participants: Participant[],
   newUtterances: Utterance[]
-): string => `Update the business model from this finalized meeting evidence.
+): string => {
+  const customerIds = new Set(
+    participants
+      .filter((participant) => participant.role === "customer")
+      .map((participant) => participant.id)
+  );
+  const customerUtterances = newUtterances.filter((utterance) =>
+    customerIds.has(utterance.participantId)
+  );
+  const operatorContext = newUtterances.filter(
+    (utterance) => !customerIds.has(utterance.participantId)
+  );
+  return `Update the business model from finalized meeting evidence.
 
 Return the complete graph, not a patch. Preserve supported prior elements and stable IDs.
-Every node, edge, pain, contradiction, and suggested question must cite one or more allowed utterance IDs.
+Every node, edge, pain, contradiction, and suggested question must cite one or more designated-customer utterance IDs. Do not establish a claim from operator context alone. If customer evidence is insufficient, leave the claim out and ask a question that targets the gap.
 
-PARTICIPANTS
+PARTICIPANT ROLES
 ${JSON.stringify(participants)}
+
+DESIGNATED CUSTOMER PARTICIPANTS
+${JSON.stringify(participants.filter((participant) => participant.role === "customer"))}
 
 CURRENT ACCEPTED GRAPH
 ${JSON.stringify(currentGraph)}
 
-NEW FINALIZED UTTERANCES
-${JSON.stringify(newUtterances)}
+NEW FINALIZED CUSTOMER EVIDENCE (the only new utterances you may cite)
+${JSON.stringify(customerUtterances)}
+
+NEW OPERATOR / INTERVIEWER CONTEXT (do not cite this as evidence)
+${JSON.stringify(operatorContext)}
 `;
+};
 
 export class CodexMeetingAnalyzer implements MeetingAnalyzer {
   private readonly client: AppServerAnalyzerClient;
