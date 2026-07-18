@@ -15,6 +15,12 @@ trying to merge incremental graph patches.
 - `/whiteboard/:sessionId` — presentation-safe workflow map for screen sharing.
 - `/events/:sessionId` — server-sent session snapshots consumed by both views.
 
+On the operator page, the builder selects **This is me** beside their Recall
+meeting identity. Scout stores that participant as the operator, treats the
+other human participants as clients, excludes the Live Architect bot from the
+selector, and includes the resolved role with each utterance sent for analysis.
+The selection can be corrected during the session.
+
 ## Requirements
 
 - Node.js 22+
@@ -129,6 +135,15 @@ Analysis runs after the bounded leading-edge delay, or immediately with:
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/sessions/SESSION_ID/analyze
+```
+
+The operator identity can also be selected directly through the session API:
+
+```bash
+curl -X PUT \
+  http://127.0.0.1:3000/api/sessions/SESSION_ID/operator \
+  -H 'content-type: application/json' \
+  --data '{"participantId":"builder-1"}'
 ```
 
 ## Verification

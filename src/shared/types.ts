@@ -34,7 +34,9 @@ export type GraphEdgeKind = (typeof graphEdgeKinds)[number];
 export interface Participant {
   id: string;
   name: string;
+  isBot?: boolean;
   platform?: string;
+  platformIdentity?: string;
   joinedAt?: number;
   role?: ParticipantRole;
 }
@@ -134,6 +136,7 @@ export interface SessionSnapshot {
   updatedAt: number;
   revision: number;
   status: SessionStatus;
+  operatorParticipantId?: string;
   participants: Participant[];
   utterances: Utterance[];
   graph: BusinessGraph;

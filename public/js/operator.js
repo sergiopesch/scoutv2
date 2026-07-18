@@ -10,12 +10,17 @@ import {
 } from "./transcript-view.js";
 import { processingControlView } from "./processing-control.js";
 import { resetSession } from "./reset-session-api.js";
+import {
+  operatorIdentityView,
+  selectOperator
+} from "./operator-identity.js";
 
 const elements = {
   topic: document.querySelector("#meeting-heading"),
   integrations: document.querySelector("#integrations"),
   participants: document.querySelector("#participants"),
   participantCount: document.querySelector("#participant-count"),
+  identityStatus: document.querySelector("#identity-status"),
   transcript: document.querySelector("#transcript"),
   newTranscript: document.querySelector("#new-transcript"),
   streamDot: document.querySelector("#stream-dot"),
@@ -47,6 +52,7 @@ let processingSubmitting = false;
 let processingRequestedPaused;
 let streamConnectionState = "connecting";
 let resetting = false;
+let operatorSelectingId;
 let renderedTranscriptSignature = "";
 
 function text(value, fallback = "—") {
@@ -111,33 +117,42 @@ function renderStreamState() {
         : "Connecting";
 }
 
-function renderParticipants(participants = []) {
+function renderParticipants(next) {
+  const participants = operatorIdentityView(
+    next.participants,
+    next.operatorParticipantId,
+    operatorSelectingId
+  );
   elements.participantCount.textContent = `${participants.length} present`;
+  elements.identityStatus.textContent = next.operatorParticipantId
+    ? "Operator selected. Everyone else is treated as a client."
+    : participants.length
+      ? "Choose your meeting identity."
+      : "Waiting for people to join.";
   const rows = participants.map((participant) => {
     const row = document.createElement("li");
     row.className = "participant-row";
+    row.dataset.role = participant.selected ? "operator" : participant.role;
     const avatar = document.createElement("span");
     avatar.className = "participant-avatar";
     avatar.textContent = initials(participant.name);
+    const copy = document.createElement("div");
+    copy.className = "participant-copy";
     const name = document.createElement("span");
     name.className = "participant-name";
     name.textContent = text(participant.name, "Unknown participant");
-    const role = document.createElement("select");
-    role.className = "participant-role";
-    role.setAttribute("aria-label", `Role for ${name.textContent}`);
-    [
-      ["", "Unassigned"],
-      ["customer", "Prospective customer"],
-      ["operator", "Operator / interviewer"]
-    ].forEach(([value, label]) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      option.selected = value === (participant.role ?? "");
-      role.append(option);
-    });
-    role.addEventListener("change", () => void updateParticipantRole(participant.id, role));
-    row.append(avatar, name, role);
+    const role = document.createElement("span");
+    role.className = "participant-role-label";
+    role.textContent = participant.roleLabel;
+    copy.append(name, role);
+    const button = document.createElement("button");
+    button.className = "identity-button";
+    button.type = "button";
+    button.textContent = participant.buttonText;
+    button.disabled = participant.disabled;
+    button.setAttribute("aria-pressed", String(participant.selected));
+    button.addEventListener("click", () => chooseOperator(participant.id));
+    row.append(avatar, copy, button);
     return row;
   });
   if (!rows.length) {
@@ -147,31 +162,6 @@ function renderParticipants(participants = []) {
     rows.push(empty);
   }
   elements.participants.replaceChildren(...rows);
-}
-
-async function updateParticipantRole(participantId, control) {
-  if (!sessionId) return;
-  control.disabled = true;
-  elements.error.hidden = true;
-  try {
-    const response = await fetch(
-      `${sessionApiPath(sessionId)}/participants/${encodeURIComponent(participantId)}/role`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ role: control.value || "unassigned" })
-      }
-    );
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      throw new Error(result.error || `Role update failed (${response.status}).`);
-    }
-  } catch (error) {
-    showError(error);
-    if (snapshot) render(snapshot);
-  } finally {
-    control.disabled = false;
-  }
 }
 
 function renderTranscript(utterances = []) {
@@ -259,7 +249,7 @@ function render(next) {
   renderStreamState();
   elements.topic.textContent = text(next.graph?.topic?.label, "Business discovery");
   renderIntegrations(next);
-  renderParticipants(next.participants);
+  renderParticipants(next);
   renderTranscript(next.utterances);
   elements.revision.textContent = `r${next.revision ?? 0}`;
   elements.pendingCount.textContent = String(
@@ -312,6 +302,21 @@ function render(next) {
         : next.analysis?.throttled
           ? `Automatic analysis budget reached (${next.analysis?.automaticTurnsStarted ?? 0}/${next.analysis?.automaticTurnBudget ?? 0}). Analyze now remains available.`
           : "Sends finalized utterances not yet included in the accepted graph.";
+}
+
+async function chooseOperator(participantId) {
+  if (!sessionId || operatorSelectingId) return;
+  operatorSelectingId = participantId;
+  elements.error.hidden = true;
+  if (snapshot) render(snapshot);
+  try {
+    render(await selectOperator(sessionId, participantId));
+  } catch (error) {
+    showError(error);
+  } finally {
+    operatorSelectingId = undefined;
+    if (snapshot) render(snapshot);
+  }
 }
 
 function showError(error) {

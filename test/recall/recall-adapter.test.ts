@@ -200,6 +200,34 @@ describe("Recall event normalization", () => {
     ]);
   });
 
+  it("retains a stable platform identity when Recall exposes one", () => {
+    expect(
+      client().normalizeEvent({
+        event: "participant_events.join",
+        data: {
+          data: {
+            participant: {
+              id: 74,
+              name: "Stephen",
+              platform: "zoom",
+              extra_data: {
+                zoom: { conf_user_id: "stable-user-1" }
+              }
+            }
+          }
+        }
+      })
+    ).toMatchObject([
+      {
+        type: "participant.joined",
+        participant: {
+          id: "74",
+          platformIdentity: "zoom:stable-user-1"
+        }
+      }
+    ]);
+  });
+
   it("maps legacy and current bot lifecycle payloads to session-facing states", () => {
     expect(
       client().normalizeEvent(fixture("bot.status-change.json"))

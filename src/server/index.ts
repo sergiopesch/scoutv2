@@ -51,6 +51,14 @@ const ProcessingStateSchema = z
   })
   .strict();
 
+const OperatorSelectionSchema = z
+  .object({
+    participantId: z.string().min(1)
+  })
+  .strict();
+
+const RECALL_BOT_NAME = "Live Architect";
+
 export interface ScoutRuntimeDependencies {
   analyzer?: MeetingAnalyzer;
   recall?: RecallAdapter;
@@ -182,13 +190,17 @@ export const createScoutRuntime = (
         continue;
       }
       if (event.type === "participant.joined") {
-        store.upsertParticipant(sessionId, event.participant);
+        store.upsertParticipant(sessionId, {
+          ...event.participant,
+          isBot: event.participant.name === RECALL_BOT_NAME
+        });
         continue;
       }
       if (event.type === "transcript.partial") {
         store.upsertParticipant(sessionId, {
           id: event.utterance.participantId,
-          name: event.utterance.participantName
+          name: event.utterance.participantName,
+          isBot: event.utterance.participantName === RECALL_BOT_NAME
         });
         store.appendUtterance(sessionId, event.utterance);
         setListeningUnlessTerminal(sessionId);
@@ -197,7 +209,8 @@ export const createScoutRuntime = (
       if (event.type === "transcript.final") {
         store.upsertParticipant(sessionId, {
           id: event.utterance.participantId,
-          name: event.utterance.participantName
+          name: event.utterance.participantName,
+          isBot: event.utterance.participantName === RECALL_BOT_NAME
         });
         store.appendUtterance(sessionId, event.utterance);
         setListeningUnlessTerminal(sessionId);
@@ -398,7 +411,7 @@ export const createScoutRuntime = (
     void recall
       .createBot({
         meetingUrl,
-        botName: "Live Architect",
+        botName: RECALL_BOT_NAME,
         publicBaseUrl: config.publicBaseUrl,
         sessionId: snapshot.id,
         sessionToken
@@ -507,6 +520,31 @@ export const createScoutRuntime = (
     }
   });
 
+  app.put("/api/sessions/:sessionId/operator", (request, response) => {
+    const sessionId = request.params.sessionId;
+    if (!store.get(sessionId)) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    const parsed = OperatorSelectionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ error: "participantId is required" });
+      return;
+    }
+    try {
+      const updated = store.selectOperator(
+        sessionId,
+        parsed.data.participantId
+      );
+      coordinator.schedule(sessionId);
+      response.setHeader("Cache-Control", "no-store");
+      response.json(updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.status(400).json({ error: message });
+    }
+  });
+
   app.post("/api/sessions/:sessionId/analyze", (request, response) => {
     const snapshot = store.get(request.params.sessionId);
     if (!snapshot) {
@@ -562,7 +600,8 @@ export const createScoutRuntime = (
       }
       store.upsertParticipant(request.params.sessionId, {
         id: parsed.data.participantId,
-        name: parsed.data.participantName
+        name: parsed.data.participantName,
+        isBot: parsed.data.participantName === RECALL_BOT_NAME
       });
       const snapshot = store.appendUtterance(
         request.params.sessionId,

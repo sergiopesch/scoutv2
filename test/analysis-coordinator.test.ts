@@ -150,6 +150,36 @@ describe("AnalysisCoordinator", () => {
     expect(analyzer.calls).toHaveLength(0);
   });
 
+  it("attaches the current participant role to finalized analysis evidence", async () => {
+    const store = new SessionStore();
+    const analyzer = new FakeAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1);
+    const session = store.create(
+      "https://zoom.example/test",
+      "session-roles"
+    );
+    store.upsertParticipant(session.id, {
+      id: "person-1",
+      name: "Alex"
+    });
+    store.upsertParticipant(session.id, {
+      id: "person-2",
+      name: "Maya"
+    });
+    store.selectOperator(session.id, "person-1");
+    addUtterance(store, session.id, "utt-1");
+
+    await coordinator.analyzeNow(session.id);
+
+    expect(analyzer.calls[0]?.participants).toMatchObject([
+      { id: "person-1", role: "operator" },
+      { id: "person-2", role: "customer" }
+    ]);
+    expect(analyzer.calls[0]?.newUtterances).toMatchObject([
+      { id: "utt-1", participantRole: "operator" }
+    ]);
+  });
+
   it("starts from one finalized utterance after the leading-edge delay", async () => {
     vi.useFakeTimers();
     const store = new SessionStore();

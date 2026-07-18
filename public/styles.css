@@ -523,6 +523,37 @@ summary:focus-visible {
   margin: 0;
 }
 
+.identity-card {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem;
+  border: 1px solid rgb(250 250 247 / 28%);
+  background: rgb(250 250 247 / 5%);
+}
+
+.identity-card > p:not(.eyebrow) {
+  margin: 0;
+  color: rgb(250 250 247 / 68%);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.identity-card .identity-status {
+  color: var(--inverse);
+  font-family: var(--mono);
+  font-size: 0.64rem;
+}
+
+.participant-row {
+  padding: 0.2rem 0;
+}
+
+.participant-row[data-role="operator"] .participant-avatar {
+  border-color: var(--inverse);
+  box-shadow: 0 0 0 0.2rem rgb(250 250 247 / 12%);
+}
+
 .participant-avatar {
   display: grid;
   width: 1.75rem;
@@ -537,21 +568,61 @@ summary:focus-visible {
   font-weight: 800;
 }
 
-.participant-name { overflow: hidden; font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap; }
-
-.participant-role {
+.participant-copy {
   min-width: 0;
-  max-width: 7.25rem;
-  margin-left: auto;
-  padding: 0.34rem 0.28rem;
-  border: 1px solid rgb(250 250 247 / 30%);
-  border-radius: 0;
-  background: transparent;
-  color: var(--inverse);
-  font-size: 0.61rem;
+  flex: 1;
 }
 
-.participant-role option { background: var(--field); color: var(--inverse); }
+.participant-name {
+  display: block;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.participant-role-label {
+  display: block;
+  margin-top: 0.12rem;
+  color: rgb(250 250 247 / 52%);
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.participant-row[data-role="operator"] .participant-role-label {
+  color: var(--inverse);
+}
+
+.identity-button {
+  flex: 0 0 auto;
+  padding: 0.42rem 0.52rem;
+  border: 1px solid rgb(250 250 247 / 38%);
+  background: transparent;
+  color: var(--inverse);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.identity-button:hover:not(:disabled) {
+  border-color: var(--inverse);
+  background: rgb(250 250 247 / 10%);
+}
+
+.identity-button[aria-pressed="true"] {
+  border-color: var(--inverse);
+  background: var(--inverse);
+  color: var(--ink);
+}
+
+.identity-button:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
 
 .transcript-column {
   position: relative;

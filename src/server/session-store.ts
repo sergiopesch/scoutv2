@@ -35,6 +35,13 @@ export type SessionEvent =
   | {
       sequence: number;
       occurredAt: number;
+      type: "operator.selected";
+      participantId: string;
+      platformIdentity?: string;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
       type: "participant.role-set";
       participantId: string;
       role?: ParticipantRole;
@@ -103,6 +110,7 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     updatedAt: created.occurredAt,
     revision: 0,
     status: "creating",
+    operatorParticipantId: undefined,
     participants: [],
     utterances: [],
     graph: emptyBusinessGraph(),
@@ -116,6 +124,7 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     analysis: { status: "idle", pendingUtteranceCount: 0 }
   };
 
+  let selectedOperatorPlatformIdentity: string | undefined;
   for (const event of events.slice(1)) {
     snapshot.updatedAt = event.occurredAt;
     switch (event.type) {
@@ -130,11 +139,18 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
         else {
           const existing = snapshot.participants[index];
           snapshot.participants[index] = {
+            ...existing,
             ...event.participant,
             ...(existing?.role && !event.participant.role
               ? { role: existing.role }
               : {})
           };
+        }
+        if (
+          selectedOperatorPlatformIdentity &&
+          event.participant.platformIdentity === selectedOperatorPlatformIdentity
+        ) {
+          snapshot.operatorParticipantId = event.participant.id;
         }
         break;
       }
@@ -151,6 +167,10 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
         else delete participant.role;
         break;
       }
+      case "operator.selected":
+        snapshot.operatorParticipantId = event.participantId;
+        selectedOperatorPlatformIdentity = event.platformIdentity;
+        break;
       case "utterance.recorded": {
         if (event.utterance.finalized) {
           snapshot.utterances = snapshot.utterances.filter(
@@ -225,6 +245,23 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     }
   }
 
+  if (snapshot.operatorParticipantId !== undefined) {
+    snapshot.participants = snapshot.participants.map((participant) => {
+      if (participant.isBot) {
+        const { role: _role, ...bot } = participant;
+        return bot;
+      }
+      const isOperator =
+        participant.id === snapshot.operatorParticipantId ||
+        (selectedOperatorPlatformIdentity !== undefined &&
+          participant.platformIdentity === selectedOperatorPlatformIdentity);
+      return {
+        ...participant,
+        role: isOperator ? "operator" : "customer"
+      };
+    });
+  }
+
   return snapshot;
 };
 
@@ -283,6 +320,23 @@ export class SessionStore {
 
   upsertParticipant(id: string, participant: Participant): SessionSnapshot {
     return this.append(id, { type: "participant.upserted", participant });
+  }
+
+  selectOperator(id: string, participantId: string): SessionSnapshot {
+    const participant = this.getRequired(id).participants.find(
+      (candidate) => candidate.id === participantId
+    );
+    if (!participant) {
+      throw new Error(`Unknown participant: ${participantId}`);
+    }
+    if (participant.isBot) {
+      throw new Error("The Scout meeting bot cannot be selected as operator.");
+    }
+    return this.append(id, {
+      type: "operator.selected",
+      participantId,
+      platformIdentity: participant.platformIdentity
+    });
   }
 
   setParticipantRole(
@@ -360,6 +414,18 @@ export class SessionStore {
         })
       )
     ];
+    if (current.operatorParticipantId) {
+      const operator = current.participants.find(
+        (participant) => participant.id === current.operatorParticipantId
+      );
+      retainedEvents.push({
+        sequence: retainedEvents.length,
+        occurredAt,
+        type: "operator.selected",
+        participantId: current.operatorParticipantId,
+        platformIdentity: operator?.platformIdentity
+      });
+    }
     retainedEvents.push({
       sequence: retainedEvents.length,
       occurredAt,

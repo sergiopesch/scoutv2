@@ -96,6 +96,8 @@ For every turn, return one complete BusinessGraph matching the supplied JSON sch
 Use only the supplied utterance IDs as evidence. Preserve previously supported facts unless new evidence corrects them.
 Build a reliable model of the prospective customer's business. Operator and interviewer words are context only: do not turn their questions, examples, assumptions, or leading suggestions into customer pains, goals, constraints, contradictions, or other graph claims. Every graph finding must cite designated-customer utterances. A customer may confirm or elaborate on an operator suggestion, but cite the customer's utterance, never the suggestion.
 Distinguish current, desired, hypothesis, and unknown states. Do not invent participant identities.
+Treat client utterances as discovery evidence. Treat operator utterances as questions, framing, or hypotheses unless a client confirms them.
+When a participant role is unknown, do not guess whether they are the operator or a client.
 Keep labels concise for a 1280x720 workflow diagram. Return structured output only.`;
 
 type JsonSchema = Record<string, unknown>;
