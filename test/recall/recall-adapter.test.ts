@@ -100,6 +100,28 @@ describe("Recall create bot request", () => {
     });
   });
 
+  it("uses Recall's pause and resume recording endpoints", async () => {
+    const fetchMock = vi.fn(
+      async (..._arguments: Parameters<typeof globalThis.fetch>) =>
+        new Response(null, { status: 200 })
+    );
+    const adapter = client({
+      fetch: fetchMock as unknown as typeof globalThis.fetch
+    });
+
+    await adapter.pauseRecording("bot/with spaces");
+    await adapter.resumeRecording("bot/with spaces");
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://eu-central-1.recall.ai/api/v1/bot/bot%2Fwith%20spaces/pause_recording/",
+      "https://eu-central-1.recall.ai/api/v1/bot/bot%2Fwith%20spaces/resume_recording/"
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "POST",
+      "POST"
+    ]);
+  });
+
   it("can build the documented camera webpage fallback without changing session URLs", () => {
     const request = buildRecallCreateBotRequest(botConfig, {
       outputMode: "camera",

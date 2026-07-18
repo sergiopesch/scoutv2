@@ -19,6 +19,7 @@ export class AnalysisCoordinator {
   ) {}
 
   schedule(sessionId: string): void {
+    if (this.store.getRequired(sessionId).processing.paused) return;
     const state = this.stateFor(sessionId);
     const pendingCount = this.pendingUtteranceIds(sessionId, state).length;
     if (pendingCount === 0) return;
@@ -35,6 +36,13 @@ export class AnalysisCoordinator {
 
   async analyzeNow(sessionId: string): Promise<void> {
     const state = this.stateFor(sessionId);
+    if (this.store.getRequired(sessionId).processing.paused) {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = undefined;
+      }
+      return;
+    }
     if (state.timer) {
       clearTimeout(state.timer);
       state.timer = undefined;
@@ -98,7 +106,11 @@ export class AnalysisCoordinator {
     } finally {
       state.running = false;
       const pendingCount = this.pendingUtteranceIds(sessionId, state).length;
-      if (state.runAgain && pendingCount > 0) {
+      if (
+        !this.store.getRequired(sessionId).processing.paused &&
+        state.runAgain &&
+        pendingCount > 0
+      ) {
         state.runAgain = false;
         this.updateQueuedCount(sessionId, pendingCount);
         this.scheduleAfter(sessionId, state, this.rerunDelayMs);
@@ -106,6 +118,28 @@ export class AnalysisCoordinator {
         state.runAgain = false;
       }
     }
+  }
+
+  setPaused(sessionId: string, paused: boolean): void {
+    const state = this.stateFor(sessionId);
+    if (paused) {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = undefined;
+      }
+      state.runAgain = false;
+      const pendingCount = this.pendingUtteranceIds(sessionId, state).length;
+      const current = this.store.getRequired(sessionId).analysis;
+      if (!state.running && pendingCount > 0) {
+        this.store.setAnalysis(sessionId, {
+          ...current,
+          status: "idle",
+          pendingUtteranceCount: pendingCount
+        });
+      }
+      return;
+    }
+    this.schedule(sessionId);
   }
 
   async close(): Promise<void> {

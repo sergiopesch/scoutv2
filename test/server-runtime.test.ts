@@ -50,10 +50,21 @@ class FakeAnalyzer implements MeetingAnalyzer {
 
 class FakeRecall implements RecallAdapter {
   createConfig?: RecallBotConfig;
+  readonly recordingActions: string[] = [];
+  failPause = false;
 
   async createBot(config: RecallBotConfig) {
     this.createConfig = config;
     return { botId: "bot-test" };
+  }
+
+  async pauseRecording(botId: string): Promise<void> {
+    this.recordingActions.push(`pause:${botId}`);
+    if (this.failPause) throw new Error("Recall pause unavailable");
+  }
+
+  async resumeRecording(botId: string): Promise<void> {
+    this.recordingActions.push(`resume:${botId}`);
   }
 
   verifyWebhook(): void {}
@@ -89,6 +100,26 @@ class FakeRecall implements RecallAdapter {
             text: "Finance manually copies invoices into a spreadsheet.",
             startedAt: 1,
             endedAt: 2,
+            finalized: true
+          }
+        }
+      ];
+    }
+    if (kind === "second-transcript" || kind === "paused-transcript") {
+      return [
+        {
+          type: "transcript.final",
+          utterance: {
+            id:
+              kind === "second-transcript"
+                ? "utt-live-2"
+                : "utt-while-paused",
+            sequence: 2,
+            participantId: "person-1",
+            participantName: "Alex",
+            text: "This utterance arrived after the first analysis.",
+            startedAt: 3,
+            endedAt: 4,
             finalized: true
           }
         }
@@ -217,5 +248,145 @@ describe("Scout runtime", () => {
       .send({})
       .expect(404);
     await disabled.close();
+  });
+
+  it("pauses upstream capture, discards paused transcript events, and resumes the same session", async () => {
+    const recall = new FakeRecall();
+    const config = baseConfig({
+      publicBaseUrl: "https://scout.example.invalid",
+      recall: {
+        region: "us-west-2",
+        apiKey: "test-key",
+        apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
+        workspaceVerificationSecret: "whsec_workspace",
+        statusWebhookSecret: "whsec_status",
+        outputMode: "screenshare"
+      }
+    });
+    const runtime = createScoutRuntime(config, {
+      analyzer: new FakeAnalyzer(),
+      recall,
+      statusRecall: recall
+    });
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    await eventually(() => Boolean(recall.createConfig));
+    const sessionId = created.body.sessionId as string;
+    const token = recall.createConfig?.sessionToken;
+    expect(token).toBeTruthy();
+
+    await request(runtime.app)
+      .post(`/webhooks/recall/${token}`)
+      .set("Content-Type", "application/json")
+      .send(JSON.stringify({ kind: "transcript" }))
+      .expect(204);
+    await eventually(() => runtime.store.getRequired(sessionId).revision === 1);
+    const beforePause = runtime.store.getRequired(sessionId);
+
+    const paused = await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/processing`)
+      .send({ paused: true })
+      .expect(200);
+    expect(paused.body.processing).toMatchObject({
+      paused: true,
+      incomingTranscriptPolicy: "discard"
+    });
+    expect(recall.recordingActions).toEqual(["pause:bot-test"]);
+
+    await request(runtime.app)
+      .post(`/webhooks/recall/${token}`)
+      .set("Content-Type", "application/json")
+      .send(JSON.stringify({ kind: "paused-transcript" }))
+      .expect(204);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const whilePaused = runtime.store.getRequired(sessionId);
+    expect(whilePaused.utterances).toEqual(beforePause.utterances);
+    expect(whilePaused.graph).toEqual(beforePause.graph);
+    expect(whilePaused.codex.threadId).toBe(beforePause.codex.threadId);
+    await request(runtime.app)
+      .post(`/api/sessions/${sessionId}/analyze`)
+      .expect(409);
+
+    const refreshed = await request(runtime.app)
+      .get(`/api/sessions/${sessionId}`)
+      .expect(200);
+    expect(refreshed.body.processing.paused).toBe(true);
+
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/processing`)
+      .send({ paused: false })
+      .expect(200);
+    expect(recall.recordingActions).toEqual([
+      "pause:bot-test",
+      "resume:bot-test"
+    ]);
+
+    await request(runtime.app)
+      .post(`/webhooks/recall/${token}`)
+      .set("Content-Type", "application/json")
+      .send(JSON.stringify({ kind: "second-transcript" }))
+      .expect(204);
+    await eventually(() => runtime.store.getRequired(sessionId).revision === 2);
+    const resumed = runtime.store.getRequired(sessionId);
+    expect(resumed.id).toBe(beforePause.id);
+    expect(resumed.recall.botId).toBe(beforePause.recall.botId);
+    expect(resumed.codex.threadId).toBe(beforePause.codex.threadId);
+    expect(resumed.utterances.map((utterance) => utterance.id)).toEqual([
+      "utt-live-1",
+      "utt-live-2"
+    ]);
+    await runtime.close();
+  });
+
+  it("serializes repeated pause requests and preserves active state on upstream failure", async () => {
+    const recall = new FakeRecall();
+    const config = baseConfig({
+      publicBaseUrl: "https://scout.example.invalid",
+      recall: {
+        region: "us-west-2",
+        apiKey: "test-key",
+        apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
+        workspaceVerificationSecret: "whsec_workspace",
+        statusWebhookSecret: "whsec_status",
+        outputMode: "screenshare"
+      }
+    });
+    const runtime = createScoutRuntime(config, {
+      analyzer: new FakeAnalyzer(),
+      recall,
+      statusRecall: recall
+    });
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    await eventually(() => Boolean(recall.createConfig));
+    const sessionId = created.body.sessionId as string;
+
+    await Promise.all([
+      request(runtime.app)
+        .put(`/api/sessions/${sessionId}/processing`)
+        .send({ paused: true })
+        .expect(200),
+      request(runtime.app)
+        .put(`/api/sessions/${sessionId}/processing`)
+        .send({ paused: true })
+        .expect(200)
+    ]);
+    expect(recall.recordingActions).toEqual(["pause:bot-test"]);
+
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/processing`)
+      .send({ paused: false })
+      .expect(200);
+    recall.failPause = true;
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/processing`)
+      .send({ paused: true })
+      .expect(502);
+    expect(runtime.store.getRequired(sessionId).processing.paused).toBe(false);
+    await runtime.close();
   });
 });

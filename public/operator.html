@@ -19,6 +19,27 @@
         <p class="eyebrow">Active topic</p>
         <h1 class="meeting-topic" id="meeting-heading">Loading meeting…</h1>
         <ul class="integration-list" id="integrations" aria-label="Integration states"></ul>
+        <div class="processing-card" id="processing-card" data-paused="false">
+          <div class="processing-card-heading">
+            <p class="eyebrow">Live processing</p>
+            <span
+              class="processing-state"
+              id="processing-state"
+              aria-live="polite"
+            >Live</span>
+          </div>
+          <button
+            class="processing-button"
+            id="processing-button"
+            type="button"
+            aria-pressed="false"
+          >
+            Pause live processing
+          </button>
+          <p class="action-note" id="processing-note">
+            Pausing keeps this session, bot, transcript, graph, and Codex thread intact.
+          </p>
+        </div>
         <hr class="section-rule" />
         <div class="section-heading">
           <h2>Participants</h2>

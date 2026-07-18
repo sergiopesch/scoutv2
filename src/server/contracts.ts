@@ -47,6 +47,8 @@ export type NormalizedMeetingEvent =
 
 export interface RecallAdapter {
   createBot(config: RecallBotConfig): Promise<RecallBotResult>;
+  pauseRecording(botId: string): Promise<void>;
+  resumeRecording(botId: string): Promise<void>;
   verifyWebhook(rawBody: string, headers: Record<string, string>): void;
   normalizeEvent(payload: unknown): NormalizedMeetingEvent[];
 }
