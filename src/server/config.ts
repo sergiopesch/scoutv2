@@ -85,12 +85,12 @@ export const loadConfig = (
       : undefined,
     analysisDelayMs: parseInteger(
       environment.ANALYSIS_DELAY_MS,
-      1_500,
+      500,
       "ANALYSIS_DELAY_MS"
     ),
     analysisRerunDelayMs: parseInteger(
       environment.ANALYSIS_RERUN_DELAY_MS,
-      500,
+      250,
       "ANALYSIS_RERUN_DELAY_MS"
     ),
     allowDevIngest: environment.SCOUT_ALLOW_DEV_INGEST === "true",

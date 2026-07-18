@@ -62,11 +62,15 @@ npm run dev
 ```
 
 Automatic analysis uses leading-edge batching: the first finalized utterance
-starts a non-resetting `ANALYSIS_DELAY_MS` timer (1,500 ms by default).
+starts a non-resetting `ANALYSIS_DELAY_MS` timer (500 ms by default).
 Additional finals join that pending batch without postponing it. If more finals
 arrive while Codex is analyzing, the next pass starts after the shorter,
-non-resetting `ANALYSIS_RERUN_DELAY_MS` interval (500 ms by default). The
+non-resetting `ANALYSIS_RERUN_DELAY_MS` interval (250 ms by default). The
 operator's **Analyze now** action bypasses an idle timer immediately.
+
+The operator transcript also displays Recall's interim
+`transcript.partial_data` while someone is speaking. Interim text is replaced
+by the finalized utterance and is never sent to Codex for analysis.
 
 ## Start a live session
 

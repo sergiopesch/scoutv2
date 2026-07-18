@@ -14,8 +14,8 @@ export class AnalysisCoordinator {
   constructor(
     private readonly store: SessionStore,
     private readonly analyzer: MeetingAnalyzer,
-    private readonly initialDelayMs = 1_500,
-    private readonly rerunDelayMs = 500
+    private readonly initialDelayMs = 500,
+    private readonly rerunDelayMs = 250
   ) {}
 
   schedule(sessionId: string): void {

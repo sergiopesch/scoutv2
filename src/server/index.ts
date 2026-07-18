@@ -147,6 +147,15 @@ export const createScoutRuntime = (
         store.upsertParticipant(sessionId, event.participant);
         continue;
       }
+      if (event.type === "transcript.partial") {
+        store.upsertParticipant(sessionId, {
+          id: event.utterance.participantId,
+          name: event.utterance.participantName
+        });
+        store.appendUtterance(sessionId, event.utterance);
+        store.setStatus(sessionId, "listening");
+        continue;
+      }
       if (event.type === "transcript.final") {
         store.upsertParticipant(sessionId, {
           id: event.utterance.participantId,

@@ -138,8 +138,10 @@ function renderTranscript(utterances = []) {
     turn.fragments.forEach((fragment, index) => {
       const fragmentText = document.createElement("span");
       fragmentText.className = "utterance-fragment";
+      fragmentText.classList.toggle("is-partial", !fragment.finalized);
       fragmentText.dataset.utteranceId = fragment.id;
       fragmentText.dataset.sequence = String(fragment.sequence);
+      fragmentText.dataset.finalized = String(fragment.finalized);
       fragmentText.textContent = fragment.text;
       if (index > 0) body.append(document.createTextNode(" "));
       body.append(fragmentText);
@@ -155,7 +157,7 @@ function renderTranscript(utterances = []) {
   if (!rows.length) {
     const empty = document.createElement("li");
     empty.className = "empty-copy";
-    empty.textContent = "Finalized, speaker-attributed transcript will appear here.";
+    empty.textContent = "Speaker-attributed transcript will appear here as people talk.";
     rows.push(empty);
   }
   elements.transcript.replaceChildren(...rows);

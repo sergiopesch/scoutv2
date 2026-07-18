@@ -60,6 +60,23 @@ class FakeRecall implements RecallAdapter {
 
   normalizeEvent(payload: unknown): NormalizedMeetingEvent[] {
     const kind = (payload as { kind?: string }).kind;
+    if (kind === "partial") {
+      return [
+        {
+          type: "transcript.partial",
+          utterance: {
+            id: "utt-live-partial",
+            sequence: 1,
+            participantId: "person-1",
+            participantName: "Alex",
+            text: "Finance manually copies",
+            startedAt: 1,
+            endedAt: 1.5,
+            finalized: false
+          }
+        }
+      ];
+    }
     if (kind === "transcript") {
       return [
         {
@@ -142,6 +159,23 @@ describe("Scout runtime", () => {
     const sessionId = created.body.sessionId as string;
     const token = recall.createConfig?.sessionToken;
     expect(token).toBeTruthy();
+
+    await request(runtime.app)
+      .post(`/webhooks/recall/${token}`)
+      .set("Content-Type", "application/json")
+      .send(JSON.stringify({ kind: "partial" }))
+      .expect(204);
+
+    await eventually(
+      () => runtime.store.getRequired(sessionId).utterances.length === 1
+    );
+    const interim = runtime.store.getRequired(sessionId);
+    expect(interim.utterances[0]).toMatchObject({
+      text: "Finance manually copies",
+      finalized: false
+    });
+    expect(interim.analysis.pendingUtteranceCount).toBe(0);
+    expect(interim.revision).toBe(0);
 
     await request(runtime.app)
       .post(`/webhooks/recall/${token}`)

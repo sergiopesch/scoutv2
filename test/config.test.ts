@@ -7,8 +7,8 @@ describe("loadConfig", () => {
 
     expect(config.recall).toBeUndefined();
     expect(config.codex.reasoningEffort).toBe("low");
-    expect(config.analysisDelayMs).toBe(1_500);
-    expect(config.analysisRerunDelayMs).toBe(500);
+    expect(config.analysisDelayMs).toBe(500);
+    expect(config.analysisRerunDelayMs).toBe(250);
     expect(config.allowDevIngest).toBe(false);
   });
 
