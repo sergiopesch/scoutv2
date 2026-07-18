@@ -4,6 +4,7 @@ import {
   type BusinessGraph,
   type IntegrationState,
   type Participant,
+  type ParticipantRole,
   type SessionSnapshot,
   type SessionStatus,
   type Utterance
@@ -30,6 +31,13 @@ export type SessionEvent =
       occurredAt: number;
       type: "participant.upserted";
       participant: Participant;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
+      type: "participant.role-set";
+      participantId: string;
+      role?: ParticipantRole;
     }
   | {
       sequence: number;
@@ -119,7 +127,28 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
           (participant) => participant.id === event.participant.id
         );
         if (index === -1) snapshot.participants.push(event.participant);
-        else snapshot.participants[index] = event.participant;
+        else {
+          const existing = snapshot.participants[index];
+          snapshot.participants[index] = {
+            ...event.participant,
+            ...(existing?.role && !event.participant.role
+              ? { role: existing.role }
+              : {})
+          };
+        }
+        break;
+      }
+      case "participant.role-set": {
+        const participant = snapshot.participants.find(
+          (item) => item.id === event.participantId
+        );
+        if (!participant) {
+          throw new Error(
+            `Cannot set a role for unknown participant ${event.participantId}.`
+          );
+        }
+        if (event.role) participant.role = event.role;
+        else delete participant.role;
         break;
       }
       case "utterance.recorded": {
@@ -176,9 +205,12 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
         snapshot.graph = event.graph;
         snapshot.revision += 1;
         snapshot.analysis = {
+          ...snapshot.analysis,
           status: "idle",
           pendingUtteranceCount: 0,
-          lastCompletedAt: event.occurredAt
+          lastCompletedAt: event.occurredAt,
+          lastError: undefined,
+          blockedReason: undefined
         };
         break;
       case "session.context-reset":
@@ -234,6 +266,12 @@ export class SessionStore {
     return structuredClone(events);
   }
 
+  list(): SessionSnapshot[] {
+    return [...this.projections.values()].map((snapshot) =>
+      structuredClone(snapshot)
+    );
+  }
+
   rebuild(id: string): SessionSnapshot {
     this.rebuildProjection(id);
     return this.getRequired(id);
@@ -245,6 +283,18 @@ export class SessionStore {
 
   upsertParticipant(id: string, participant: Participant): SessionSnapshot {
     return this.append(id, { type: "participant.upserted", participant });
+  }
+
+  setParticipantRole(
+    id: string,
+    participantId: string,
+    role?: ParticipantRole
+  ): SessionSnapshot {
+    const snapshot = this.getRequired(id);
+    if (!snapshot.participants.some((participant) => participant.id === participantId)) {
+      throw new Error(`Unknown participant: ${participantId}`);
+    }
+    return this.append(id, { type: "participant.role-set", participantId, role });
   }
 
   appendUtterance(id: string, utterance: Utterance): SessionSnapshot {

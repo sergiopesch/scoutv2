@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#17120e" />
+  <meta name="description" content="Veyra House is a fictional private performance and recovery club created for the Scout product demo." />
+  <title>Veyra House — Train hard. Return whole.</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script type="module" src="script.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header" data-header>
+    <a class="wordmark" href="#top" aria-label="Veyra House home">Veyra House</a>
+    <nav class="desktop-nav" aria-label="Primary navigation">
+      <a href="#house">The House</a>
+      <a href="#method">Method</a>
+      <a href="#experiences">Experiences</a>
+      <a href="#membership">Membership</a>
+      <a href="#journal">Journal</a>
+    </nav>
+    <div class="header-actions">
+      <button class="location-button" type="button" aria-label="Current location: London">
+        London
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+      </button>
+      <button class="button button-outline header-cta" type="button" data-open-booking="visit">Book a visit</button>
+      <button class="menu-button" type="button" aria-expanded="false" aria-controls="mobile-nav" data-menu-button>
+        <span class="sr-only">Open menu</span>
+        <i></i><i></i>
+      </button>
+    </div>
+    <nav class="mobile-nav" id="mobile-nav" aria-label="Mobile navigation" data-mobile-nav hidden>
+      <a href="#house">The House</a>
+      <a href="#method">Method</a>
+      <a href="#experiences">Experiences</a>
+      <a href="#membership">Membership</a>
+      <a href="#journal">Journal</a>
+      <button class="button button-light" type="button" data-open-booking="visit">Book a visit</button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <img class="hero-image" src="assets/veyra-hero.jpg" alt="A dark performance studio flowing into a warm stone thermal pool" />
+      <div class="hero-shade" aria-hidden="true"></div>
+      <div class="hero-content content-shell">
+        <h1 id="hero-title">Train hard.<br />Return whole.</h1>
+        <p>A private performance and recovery house in London. Strength training, thermal ritual, and hands-on care—designed as one continuous practice.</p>
+        <div class="button-row">
+          <a class="button button-light" href="#house">Explore the house</a>
+          <button class="button button-outline" type="button" data-open-booking="visit">Plan your visit</button>
+        </div>
+      </div>
+      <a class="hero-next" href="#house">
+        <span>Discover the house</span>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14M4.5 11.5 10 17l5.5-5.5" /></svg>
+      </a>
+    </section>
+
+    <section class="states section-light" id="house" aria-labelledby="states-title">
+      <div class="content-shell states-layout">
+        <div class="states-copy reveal">
+          <h2 id="states-title">One house.<br />Three states.</h2>
+          <p class="section-intro">Every visit moves through effort, recovery and return. Come for one practice or let us compose the whole arc.</p>
+          <div class="state-list" role="tablist" aria-label="Veyra practices">
+            <button class="state-item is-active" type="button" role="tab" aria-selected="true" data-state="train">
+              <span class="item-number">01</span>
+              <strong>Train</strong>
+              <span>Progressive strength, conditioning and movement coaching.</span>
+              <i>Explore</i>
+            </button>
+            <button class="state-item" type="button" role="tab" aria-selected="false" data-state="restore">
+              <span class="item-number">02</span>
+              <strong>Restore</strong>
+              <span>Bodywork, diagnostics and recovery therapies.</span>
+              <i>Explore</i>
+            </button>
+            <button class="state-item" type="button" role="tab" aria-selected="false" data-state="ritual">
+              <span class="item-number">03</span>
+              <strong>Ritual</strong>
+              <span>Heat, cold and stillness in a guided thermal circuit.</span>
+              <i>Explore</i>
+            </button>
+          </div>
+        </div>
+        <figure class="states-media reveal" data-states-media>
+          <img src="assets/veyra-three-states.jpg" alt="A performance studio beside a cold plunge and cedar sauna" />
+          <figcaption><span data-state-caption>Train</span> at Veyra House</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="method section-dark" id="method" aria-labelledby="method-title">
+      <img class="method-image" src="assets/veyra-method.jpg" alt="A practitioner folding towels beside copper recovery tools" />
+      <div class="method-shade" aria-hidden="true"></div>
+      <div class="content-shell method-content reveal">
+        <h2 id="method-title">The Veyra Method</h2>
+        <p>Load with purpose. Recover with evidence. Repeat with enough space to notice what changed.</p>
+        <ol class="method-steps" aria-label="The Veyra Method steps">
+          <li>Assess</li><li>Train</li><li>Recover</li><li>Adapt</li>
+        </ol>
+        <a class="text-link text-link-light" href="#journal">Meet the practitioners <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+
+    <section class="day section-light" id="experiences" aria-labelledby="day-title">
+      <div class="day-copy reveal">
+        <h2 id="day-title">A day shaped<br />around you.</h2>
+        <p class="section-intro">Come for a single practice or move through the full house. Your host keeps the transitions quiet.</p>
+        <div class="schedule" role="tablist" aria-label="Example Veyra day">
+          <button class="schedule-item is-active" type="button" role="tab" aria-selected="true" data-schedule="train">
+            <time>07:30 — Train</time><strong>Performance session</strong><span>Coached strength and movement.</span>
+          </button>
+          <button class="schedule-item" type="button" role="tab" aria-selected="false" data-schedule="ritual">
+            <time>08:40 — Ritual</time><strong>Contrast circuit</strong><span>Sauna, cold immersion and breath.</span>
+          </button>
+          <button class="schedule-item" type="button" role="tab" aria-selected="false" data-schedule="restore">
+            <time>09:15 — Restore</time><strong>Bodywork</strong><span>Forty-five minutes of targeted recovery.</span>
+          </button>
+        </div>
+        <p class="day-statement">Three practices.<br />One continuous rhythm.</p>
+        <div class="booking-paths" aria-label="Booking options">
+          <button class="text-link" type="button" data-open-booking="class">View class times <span aria-hidden="true">→</span></button>
+          <button class="text-link" type="button" data-open-booking="treatment">Book a treatment <span aria-hidden="true">→</span></button>
+          <button class="text-link" type="button" data-open-booking="ritual">Request a day ritual <span aria-hidden="true">→</span></button>
+        </div>
+        <p class="access-note">Members receive priority access. A limited number of day rituals are released each week.</p>
+      </div>
+      <figure class="day-media reveal">
+        <img src="assets/veyra-day.jpg" alt="An athlete walking from the training floor toward the thermal corridor" data-day-image />
+      </figure>
+    </section>
+
+    <section class="membership section-dark" id="membership" aria-labelledby="membership-title">
+      <div class="membership-sculpture" aria-hidden="true"><span></span></div>
+      <div class="content-shell membership-content reveal">
+        <h2 id="membership-title">Belong to<br />the practice.</h2>
+        <p class="membership-intro">Membership is intentionally limited so the house can stay personal. Begin with a conversation, a movement assessment and a first ritual.</p>
+        <div class="membership-options">
+          <article>
+            <h3>House</h3>
+            <p>Unlimited studio classes, open training and thermal ritual.</p>
+          </article>
+          <article>
+            <h3>Resident</h3>
+            <p>Everything in House, plus monthly bodywork and a dedicated performance lead.</p>
+          </article>
+        </div>
+        <div class="membership-actions">
+          <button class="text-link text-link-light" type="button" data-open-booking="membership">Apply for membership <span aria-hidden="true">→</span></button>
+          <button class="text-link text-link-light" type="button" data-open-booking="ritual">Explore guest rituals <span aria-hidden="true">→</span></button>
+        </div>
+        <p class="membership-note">Guest access varies by practice and capacity.</p>
+      </div>
+    </section>
+
+    <section class="location section-light" aria-labelledby="location-title">
+      <div class="content-shell location-layout">
+        <div class="location-copy reveal">
+          <h2 id="location-title">The London<br />house.</h2>
+          <address>14 Redchurch Yard,<br />Shoreditch, London E2</address>
+          <div class="short-rule" aria-hidden="true"></div>
+          <p>Monday–Friday 06:00–22:00<br />Saturday–Sunday 07:00–20:00</p>
+          <button class="text-link" type="button" data-open-booking="arrival">Plan your arrival <span aria-hidden="true">→</span></button>
+        </div>
+        <figure class="location-media reveal">
+          <img src="assets/veyra-london.jpg" alt="The discreet stone and copper entrance to Veyra House London" />
+        </figure>
+        <div class="expansion-row reveal" aria-label="Future Veyra locations">
+          <span>Copenhagen — in residence 2027</span>
+          <span>New York — listening now</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="journal section-light" id="journal" aria-labelledby="journal-title">
+      <div class="content-shell journal-layout reveal">
+        <h2 id="journal-title">Notes from<br />the house.</h2>
+        <article class="journal-feature">
+          <p>Practice 06</p>
+          <h3>Recovery is not the opposite of work.</h3>
+          <p>Performance lead Anika Rowe on adaptation, attention and why the space between sessions is part of the programme.</p>
+          <a class="text-link" href="#journal-title">Read the note <span aria-hidden="true">→</span></a>
+        </article>
+        <article class="journal-quote">
+          <blockquote>“The body does not separate the effort from what happens after.”</blockquote>
+          <cite>Anika Rowe, Performance Lead</cite>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="content-shell footer-layout">
+      <a class="footer-wordmark" href="#top">Veyra<br />House</a>
+      <nav aria-label="Footer navigation">
+        <a href="#journal">Instagram</a>
+        <a href="#journal">Journal</a>
+        <a href="#method">Practitioners</a>
+        <a href="mailto:hello@example.invalid">Contact</a>
+        <a href="#privacy">Privacy</a>
+      </nav>
+      <form class="newsletter" data-newsletter>
+        <label for="email">Notes on strength, recovery<br />and the space between.</label>
+        <div class="newsletter-field">
+          <input id="email" type="email" placeholder="Email address" autocomplete="email" required />
+          <button type="submit">Subscribe <span aria-hidden="true">→</span></button>
+        </div>
+        <p class="form-status" aria-live="polite" data-newsletter-status></p>
+      </form>
+    </div>
+    <div class="content-shell legal-row" id="privacy">
+      <span>© 2026 Veyra House</span>
+      <span>Fictional company created for the Scout demonstration.</span>
+    </div>
+  </footer>
+
+  <dialog class="booking-dialog" data-booking-dialog aria-labelledby="booking-title">
+    <div class="dialog-shell">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="Close booking dialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19" /></svg>
+      </button>
+      <div class="dialog-progress" aria-hidden="true"><span></span><i></i><i></i></div>
+      <div class="dialog-copy">
+        <p class="dialog-label">Veyra House London</p>
+        <h2 id="booking-title" data-dialog-title>Where would you like to begin?</h2>
+        <p data-dialog-intro>Choose the practice that brings you to the house. Availability and eligibility are confirmed in the next step.</p>
+      </div>
+      <div class="dialog-options" data-dialog-options>
+        <button type="button" data-booking-choice="class"><span>01</span><strong>Training</strong><i>Classes and open sessions</i></button>
+        <button type="button" data-booking-choice="treatment"><span>02</span><strong>Bodywork</strong><i>Treatments and recovery</i></button>
+        <button type="button" data-booking-choice="ritual"><span>03</span><strong>Day ritual</strong><i>Thermal circuit and care</i></button>
+        <button type="button" data-booking-choice="membership"><span>04</span><strong>Membership</strong><i>Begin with a house tour</i></button>
+      </div>
+      <form class="booking-form" data-booking-form hidden>
+        <label>
+          <span>Practice</span>
+          <select name="practice" data-practice-select>
+            <option value="class">Training</option>
+            <option value="treatment">Bodywork</option>
+            <option value="ritual">Day ritual</option>
+            <option value="membership">Membership conversation</option>
+            <option value="arrival">Arrival planning</option>
+          </select>
+        </label>
+        <label>
+          <span>Preferred day</span>
+          <input type="date" name="date" required />
+        </label>
+        <fieldset>
+          <legend>Are you already a member?</legend>
+          <label><input type="radio" name="member" value="yes" required /> Yes</label>
+          <label><input type="radio" name="member" value="no" required /> Not yet</label>
+        </fieldset>
+        <p class="booking-caveat" data-booking-caveat>Class availability is confirmed in the training calendar.</p>
+        <div class="dialog-actions">
+          <button class="text-link" type="button" data-booking-back>← Back</button>
+          <button class="button button-dark" type="submit">Continue</button>
+        </div>
+      </form>
+      <div class="dialog-success" data-dialog-success hidden>
+        <p class="success-mark" aria-hidden="true">V</p>
+        <h3>Your route is ready.</h3>
+        <p>This fictional demo stops before transferring you to the relevant booking calendar.</p>
+        <button class="button button-dark" type="button" data-close-dialog>Return to the house</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

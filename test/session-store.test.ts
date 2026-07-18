@@ -104,6 +104,29 @@ describe("SessionStore", () => {
     expect(store.rebuild(session.id)).toEqual(latePartial);
   });
 
+  it("persists participant roles without letting later Recall updates erase them", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-roles");
+
+    store.upsertParticipant(session.id, { id: "person-1", name: "Alex" });
+    store.setParticipantRole(session.id, "person-1", "customer");
+    store.upsertParticipant(session.id, {
+      id: "person-1",
+      name: "Alex Morgan",
+      platform: "zoom"
+    });
+
+    expect(store.getRequired(session.id).participants).toEqual([
+      {
+        id: "person-1",
+        name: "Alex Morgan",
+        platform: "zoom",
+        role: "customer"
+      }
+    ]);
+    expect(store.rebuild(session.id).participants[0]?.role).toBe("customer");
+  });
+
   it("owns pause state in the event log and makes repeated transitions idempotent", () => {
     const store = new SessionStore();
     const session = store.create("https://zoom.example/test", "session-pause");

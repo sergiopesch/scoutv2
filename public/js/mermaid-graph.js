@@ -117,22 +117,22 @@ export function businessGraphToMermaid(graph = {}) {
   }
 
   lines.push(
-    "  classDef current fill:#172c29,stroke:#53d6ae,color:#f2fbf8,stroke-width:2px",
-    "  classDef desired fill:#182841,stroke:#6da8ff,color:#f2f7ff,stroke-width:2px",
-    "  classDef hypothesis fill:#30261a,stroke:#f1b65c,color:#fff7e9,stroke-width:2px,stroke-dasharray:6 4",
-    "  classDef unknown fill:#23262d,stroke:#7d8798,color:#d8dee9,stroke-width:2px,stroke-dasharray:3 5",
+    "  classDef current fill:#101115,stroke:#101115,color:#FAFAF7,stroke-width:2px",
+    "  classDef desired fill:#FAFAF7,stroke:#101115,color:#101115,stroke-width:2.5px",
+    "  classDef hypothesis fill:#F7F7F3,stroke:#101115,color:#101115,stroke-width:2px,stroke-dasharray:7 4",
+    "  classDef unknown fill:#ECECE7,stroke:#62656C,color:#292C34,stroke-width:2px,stroke-dasharray:2 4",
     "  classDef kind-actor rx:20,ry:20",
     "  classDef kind-team rx:20,ry:20",
     "  classDef kind-system stroke-width:3px",
     "  classDef kind-process rx:4,ry:4",
     "  classDef kind-artifact stroke-dasharray:2 2",
     "  classDef kind-decision stroke-width:3px",
-    "  classDef kind-goal fill:#183029",
+    "  classDef kind-goal stroke-width:3px",
     "  classDef kind-unknown stroke-dasharray:3 5",
-    "  classDef pain fill:#391c25,stroke:#ff6f91,color:#fff2f5,stroke-width:2px",
-    "  classDef pain-low stroke:#d994a5",
-    "  classDef pain-medium stroke:#ff8aa5",
-    "  classDef pain-high stroke:#ff4f78,stroke-width:4px"
+    "  classDef pain fill:#101115,stroke:#101115,color:#FAFAF7,stroke-width:2px",
+    "  classDef pain-low stroke-width:2px",
+    "  classDef pain-medium stroke-width:3px",
+    "  classDef pain-high stroke-width:4px"
   );
 
   return lines.join("\n");

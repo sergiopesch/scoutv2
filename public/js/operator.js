@@ -122,7 +122,22 @@ function renderParticipants(participants = []) {
     const name = document.createElement("span");
     name.className = "participant-name";
     name.textContent = text(participant.name, "Unknown participant");
-    row.append(avatar, name);
+    const role = document.createElement("select");
+    role.className = "participant-role";
+    role.setAttribute("aria-label", `Role for ${name.textContent}`);
+    [
+      ["", "Unassigned"],
+      ["customer", "Prospective customer"],
+      ["operator", "Operator / interviewer"]
+    ].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === (participant.role ?? "");
+      role.append(option);
+    });
+    role.addEventListener("change", () => void updateParticipantRole(participant.id, role));
+    row.append(avatar, name, role);
     return row;
   });
   if (!rows.length) {
@@ -132,6 +147,31 @@ function renderParticipants(participants = []) {
     rows.push(empty);
   }
   elements.participants.replaceChildren(...rows);
+}
+
+async function updateParticipantRole(participantId, control) {
+  if (!sessionId) return;
+  control.disabled = true;
+  elements.error.hidden = true;
+  try {
+    const response = await fetch(
+      `${sessionApiPath(sessionId)}/participants/${encodeURIComponent(participantId)}/role`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ role: control.value || "unassigned" })
+      }
+    );
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error || `Role update failed (${response.status}).`);
+    }
+  } catch (error) {
+    showError(error);
+    if (snapshot) render(snapshot);
+  } finally {
+    control.disabled = false;
+  }
 }
 
 function renderTranscript(utterances = []) {
@@ -267,7 +307,11 @@ function render(next) {
     ? next.analysis.lastError
     : processingView.paused
       ? "Continue live processing before starting another analysis."
-      : "Sends finalized utterances not yet included in the accepted graph.";
+      : next.analysis?.blockedReason
+        ? next.analysis.blockedReason
+        : next.analysis?.throttled
+          ? `Automatic analysis budget reached (${next.analysis?.automaticTurnsStarted ?? 0}/${next.analysis?.automaticTurnBudget ?? 0}). Analyze now remains available.`
+          : "Sends finalized utterances not yet included in the accepted graph.";
 }
 
 function showError(error) {

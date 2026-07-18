@@ -9,9 +9,18 @@
   <body>
     <main class="whiteboard-shell">
       <header class="whiteboard-header">
-        <div>
+        <div class="whiteboard-brand">
+          <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+            <rect x="4" y="4" width="92" height="92" rx="21" fill="#fafaf7" stroke="#ecece7" />
+            <circle cx="50" cy="50" r="31" fill="#17181c" />
+            <path d="M79 27C74 41 60 42 51 48C43 53 47 59 43 65C38 71 30 73 21 80" fill="none" stroke="#fafaf7" stroke-width="12" />
+            <circle cx="50" cy="56" r="7" fill="#fafaf7" />
+            <circle cx="50" cy="56" r="3.5" fill="#17181c" />
+          </svg>
+          <div>
           <p class="eyebrow">Scout · live business map</p>
           <h1 class="whiteboard-topic" id="topic">Listening for the shape of the business…</h1>
+          </div>
         </div>
         <div class="whiteboard-status">
           <span class="status-dot" id="whiteboard-status-dot"></span>
@@ -34,13 +43,16 @@
           <p class="eyebrow">Question worth asking next</p>
           <p id="follow-up-text"></p>
         </div>
-        <div class="legend" aria-label="Graph legend">
-          <span>Current</span>
-          <span class="desired">Desired</span>
-          <span class="hypothesis">Hypothesis</span>
-          <span class="unknown">Unknown</span>
-          <span class="pain">Pain</span>
-        </div>
+        <details class="legend">
+          <summary>Map key</summary>
+          <div class="legend-items" aria-label="Graph legend">
+            <span>Current</span>
+            <span class="desired">Desired</span>
+            <span class="hypothesis">Hypothesis</span>
+            <span class="unknown">Unknown</span>
+            <span class="pain">Friction</span>
+          </div>
+        </details>
       </footer>
     </main>
     <script type="module" src="/js/whiteboard.js"></script>

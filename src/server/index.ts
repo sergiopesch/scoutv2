@@ -41,6 +41,10 @@ const DevUtteranceSchema = z
   })
   .strict();
 
+const ParticipantRoleSchema = z
+  .object({ role: z.enum(["customer", "operator", "unassigned"]) })
+  .strict();
+
 const ProcessingStateSchema = z
   .object({
     paused: z.boolean()
@@ -118,7 +122,8 @@ export const createScoutRuntime = (
     store,
     analyzer,
     config.analysisDelayMs,
-    config.analysisRerunDelayMs
+    config.analysisRerunDelayMs,
+    config.maxAutomaticAnalysisTurnsPerSession
   );
   const recall =
     dependencies.recall ??
@@ -146,6 +151,22 @@ export const createScoutRuntime = (
   const sessionEpochs = new Map<string, number>();
   const publicDir = publicDirectory();
 
+  const setListeningUnlessTerminal = (sessionId: string): void => {
+    const status = store.getRequired(sessionId).status;
+    if (status !== "ended" && status !== "error") {
+      store.setStatus(sessionId, "listening");
+    }
+  };
+
+  const activeSessionCount = (): number =>
+    store
+      .list()
+      .filter((session) =>
+        ["creating", "waiting_for_admission", "listening", "analyzing"].includes(
+          session.status
+        )
+      ).length;
+
   const applyEvents = async (
     sessionId: string,
     events: NormalizedMeetingEvent[],
@@ -170,7 +191,7 @@ export const createScoutRuntime = (
           name: event.utterance.participantName
         });
         store.appendUtterance(sessionId, event.utterance);
-        store.setStatus(sessionId, "listening");
+        setListeningUnlessTerminal(sessionId);
         continue;
       }
       if (event.type === "transcript.final") {
@@ -179,7 +200,7 @@ export const createScoutRuntime = (
           name: event.utterance.participantName
         });
         store.appendUtterance(sessionId, event.utterance);
-        store.setStatus(sessionId, "listening");
+        setListeningUnlessTerminal(sessionId);
         const existing = store.getRequired(sessionId).recall;
         store.setRecall(sessionId, {
           ...existing,
@@ -343,6 +364,13 @@ export const createScoutRuntime = (
       return;
     }
 
+    if (activeSessionCount() >= config.maxActiveSessions) {
+      response.status(429).json({
+        error: `active session limit reached (${config.maxActiveSessions})`
+      });
+      return;
+    }
+
     const snapshot = store.create(meetingUrl);
     sessionEpochs.set(snapshot.id, 0);
     const sessionToken = randomBytes(24).toString("base64url");
@@ -420,6 +448,33 @@ export const createScoutRuntime = (
     response.setHeader("Cache-Control", "no-store");
     response.json(snapshot);
   });
+
+  app.put(
+    "/api/sessions/:sessionId/participants/:participantId/role",
+    (request, response) => {
+      const snapshot = store.get(request.params.sessionId);
+      if (!snapshot) {
+        response.status(404).json({ error: "session not found" });
+        return;
+      }
+      if (!snapshot.participants.some((item) => item.id === request.params.participantId)) {
+        response.status(404).json({ error: "participant not found" });
+        return;
+      }
+      const parsed = ParticipantRoleSchema.safeParse(request.body);
+      if (!parsed.success) {
+        response.status(400).json({ error: "role must be customer, operator, or unassigned" });
+        return;
+      }
+      const updated = store.setParticipantRole(
+        snapshot.id,
+        request.params.participantId,
+        parsed.data.role === "unassigned" ? undefined : parsed.data.role
+      );
+      coordinator.schedule(snapshot.id);
+      response.json(updated);
+    }
+  );
 
   app.get("/api/whiteboards/:sessionId", (request, response) => {
     const snapshot = store.get(request.params.sessionId);

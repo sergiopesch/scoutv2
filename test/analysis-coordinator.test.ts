@@ -12,7 +12,18 @@ class FakeAnalyzer implements MeetingAnalyzer {
 
   async analyze(input: AnalyzeMeetingInput): Promise<AnalyzeMeetingResult> {
     this.calls.push(input);
-    return resultFor(input);
+    const customerIds = new Set(
+      input.participants
+        .filter((participant) => participant.role === "customer")
+        .map((participant) => participant.id)
+    );
+    const customerEvidence = input.newUtterances.filter((utterance) =>
+      customerIds.has(utterance.participantId)
+    );
+    return resultFor({
+      ...input,
+      newUtterances: customerEvidence.length > 0 ? customerEvidence : input.newUtterances
+    });
   }
 
   async close(): Promise<void> {}
@@ -38,6 +49,37 @@ class BlockingAnalyzer implements MeetingAnalyzer {
   async close(): Promise<void> {}
 }
 
+class FailingBlockingAnalyzer implements MeetingAnalyzer {
+  readonly calls: AnalyzeMeetingInput[] = [];
+  private releaseFirstCall?: () => void;
+  private readonly firstCallGate = new Promise<void>((resolve) => {
+    this.releaseFirstCall = resolve;
+  });
+
+  async analyze(input: AnalyzeMeetingInput): Promise<AnalyzeMeetingResult> {
+    this.calls.push(input);
+    await this.firstCallGate;
+    throw new Error("Codex unavailable");
+  }
+
+  releaseFirst(): void {
+    this.releaseFirstCall?.();
+  }
+
+  async close(): Promise<void> {}
+}
+
+class OperatorEvidenceAnalyzer implements MeetingAnalyzer {
+  async analyze(input: AnalyzeMeetingInput): Promise<AnalyzeMeetingResult> {
+    return resultFor({
+      ...input,
+      newUtterances: [input.newUtterances[0]!]
+    });
+  }
+
+  async close(): Promise<void> {}
+}
+
 const resultFor = (input: AnalyzeMeetingInput): AnalyzeMeetingResult => ({
   threadId: input.threadId ?? "thread-1",
   graph: {
@@ -57,6 +99,8 @@ const resultFor = (input: AnalyzeMeetingInput): AnalyzeMeetingResult => ({
 });
 
 const addUtterance = (store: SessionStore, sessionId: string, id: string) => {
+  store.upsertParticipant(sessionId, { id: "person-1", name: "Alex" });
+  store.setParticipantRole(sessionId, "person-1", "customer");
   store.appendUtterance(sessionId, {
     id,
     sequence: Number(id.replace(/\D/g, "")) || 1,
@@ -229,6 +273,191 @@ describe("AnalysisCoordinator", () => {
     expect(analyzer.calls).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_500);
     expect(analyzer.calls).toHaveLength(1);
+    await coordinator.close();
+  });
+
+  it("keeps ended status when a successful in-flight analysis completes", async () => {
+    const store = new SessionStore();
+    const analyzer = new BlockingAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1);
+    const session = store.create("https://zoom.example/test", "session-ended-success");
+
+    addUtterance(store, session.id, "utt-1");
+    const analysis = coordinator.analyzeNow(session.id);
+    expect(analyzer.calls).toHaveLength(1);
+    store.setStatus(session.id, "ended");
+    analyzer.releaseFirst();
+    await analysis;
+
+    expect(store.getRequired(session.id).status).toBe("ended");
+    await coordinator.close();
+  });
+
+  it("keeps error status when an in-flight analysis fails", async () => {
+    const store = new SessionStore();
+    const analyzer = new FailingBlockingAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1);
+    const session = store.create("https://zoom.example/test", "session-ended-error");
+
+    addUtterance(store, session.id, "utt-1");
+    const analysis = coordinator.analyzeNow(session.id);
+    expect(analyzer.calls).toHaveLength(1);
+    store.setStatus(session.id, "error");
+    analyzer.releaseFirst();
+    await analysis;
+
+    expect(store.getRequired(session.id).status).toBe("error");
+    expect(store.getRequired(session.id).analysis.lastError).toBe("Codex unavailable");
+    await coordinator.close();
+  });
+
+  it("waits for a customer selection and uses a customer's confirmation as evidence", async () => {
+    const store = new SessionStore();
+    const analyzer = new FakeAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1);
+    const session = store.create("https://zoom.example/test", "session-roles");
+    store.upsertParticipant(session.id, { id: "operator", name: "Morgan" });
+    store.appendUtterance(session.id, {
+      id: "operator-1",
+      sequence: 1,
+      participantId: "operator",
+      participantName: "Morgan",
+      text: "Is manual billing painful for you?",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+
+    await coordinator.analyzeNow(session.id);
+    expect(analyzer.calls).toHaveLength(0);
+    expect(store.getRequired(session.id).analysis.blockedReason).toMatch(/prospective customer/);
+
+    store.setParticipantRole(session.id, "operator", "operator");
+    store.upsertParticipant(session.id, { id: "customer", name: "Taylor" });
+    store.setParticipantRole(session.id, "customer", "customer");
+    store.appendUtterance(session.id, {
+      id: "customer-1",
+      sequence: 2,
+      participantId: "customer",
+      participantName: "Taylor",
+      text: "Yes, our finance team spends Friday reconciling invoices.",
+      startedAt: 3,
+      endedAt: 4,
+      finalized: true
+    });
+
+    await coordinator.analyzeNow(session.id);
+    expect(analyzer.calls).toHaveLength(1);
+    expect(store.getRequired(session.id).graph.nodes[0]?.evidenceUtteranceIds).toEqual([
+      "customer-1"
+    ]);
+    await coordinator.close();
+  });
+
+  it("rejects graph claims supported only by an operator", async () => {
+    const store = new SessionStore();
+    const coordinator = new AnalysisCoordinator(
+      store,
+      new OperatorEvidenceAnalyzer(),
+      1
+    );
+    const session = store.create("https://zoom.example/test", "session-operator-evidence");
+    store.upsertParticipant(session.id, { id: "operator", name: "Morgan" });
+    store.setParticipantRole(session.id, "operator", "operator");
+    store.upsertParticipant(session.id, { id: "customer", name: "Taylor" });
+    store.setParticipantRole(session.id, "customer", "customer");
+    store.appendUtterance(session.id, {
+      id: "operator-1",
+      sequence: 1,
+      participantId: "operator",
+      participantName: "Morgan",
+      text: "You are losing money because billing is manual.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+    store.appendUtterance(session.id, {
+      id: "customer-1",
+      sequence: 2,
+      participantId: "customer",
+      participantName: "Taylor",
+      text: "We reconcile invoices every Friday.",
+      startedAt: 3,
+      endedAt: 4,
+      finalized: true
+    });
+
+    await coordinator.analyzeNow(session.id);
+    expect(store.getRequired(session.id).revision).toBe(0);
+    expect(store.getRequired(session.id).analysis.lastError).toMatch(/non-customer evidence/);
+    await coordinator.close();
+  });
+
+  it("supports multiple customer stakeholders while retaining multiple operators as context", async () => {
+    const store = new SessionStore();
+    const analyzer = new FakeAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1);
+    const session = store.create("https://zoom.example/test", "session-multiple-roles");
+    for (const [id, name, role] of [
+      ["operator-1", "Morgan", "operator"],
+      ["operator-2", "Sam", "operator"],
+      ["customer-1", "Taylor", "customer"],
+      ["customer-2", "Jordan", "customer"]
+    ] as const) {
+      store.upsertParticipant(session.id, { id, name });
+      store.setParticipantRole(session.id, id, role);
+    }
+    for (const [id, participantId, participantName, text] of [
+      ["operator-question", "operator-1", "Morgan", "Is billing reconciliation slow?"],
+      ["operator-example", "operator-2", "Sam", "Some teams use a spreadsheet."],
+      ["customer-confirmation", "customer-1", "Taylor", "Yes, it takes us a day every week."],
+      ["customer-impact", "customer-2", "Jordan", "It delays our financial close."]
+    ] as const) {
+      store.appendUtterance(session.id, {
+        id,
+        sequence: store.getRequired(session.id).utterances.length + 1,
+        participantId,
+        participantName,
+        text,
+        startedAt: 1,
+        endedAt: 2,
+        finalized: true
+      });
+    }
+
+    await coordinator.analyzeNow(session.id);
+    expect(analyzer.calls).toHaveLength(1);
+    expect(store.getRequired(session.id).graph.nodes[0]?.evidenceUtteranceIds).toEqual([
+      "customer-confirmation",
+      "customer-impact"
+    ]);
+    await coordinator.close();
+  });
+
+  it("stops automatic turns at the per-session budget while keeping manual analysis", async () => {
+    vi.useFakeTimers();
+    const store = new SessionStore();
+    const analyzer = new FakeAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 100, 100, 1);
+    const session = store.create("https://zoom.example/test", "session-budget");
+
+    addUtterance(store, session.id, "utt-1");
+    coordinator.schedule(session.id);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(analyzer.calls).toHaveLength(1);
+
+    for (const id of ["utt-2", "utt-3", "utt-4", "utt-5"]) {
+      addUtterance(store, session.id, id);
+      coordinator.schedule(session.id);
+    }
+    expect(store.getRequired(session.id).analysis.throttled).toBe(true);
+    expect(store.getRequired(session.id).analysis.pendingUtteranceCount).toBe(4);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(analyzer.calls).toHaveLength(1);
+
+    await coordinator.analyzeNow(session.id);
+    expect(analyzer.calls).toHaveLength(2);
+    expect(store.getRequired(session.id).analysis.automaticTurnsStarted).toBe(1);
     await coordinator.close();
   });
 
