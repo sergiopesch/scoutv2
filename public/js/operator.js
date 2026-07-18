@@ -100,6 +100,7 @@ function renderIntegrations(next) {
       status: next.analysis?.status,
       detail:
         next.analysis?.lastError ??
+        next.analysis?.blockedReason ??
         `${next.analysis?.pendingUtteranceCount ?? 0} utterances pending`
     })
   );
@@ -124,10 +125,17 @@ function renderParticipants(next) {
     operatorSelectingId
   );
   elements.participantCount.textContent = `${participants.length} present`;
+  const clientCount = participants.filter(
+    (participant) => participant.role === "customer"
+  ).length;
   elements.identityStatus.textContent = next.operatorParticipantId
-    ? "Operator selected. Everyone else is treated as a client."
+    ? clientCount
+      ? "Operator selected. Everyone else is treated as a client."
+      : "Operator selected. Waiting for a client to join."
     : participants.length
-      ? "Choose your meeting identity."
+      ? participants.length === 1
+        ? "One person detected. Select yourself as operator; analysis begins when a client joins."
+        : "Choose your meeting identity."
       : "Waiting for people to join.";
   const rows = participants.map((participant) => {
     const row = document.createElement("li");
@@ -267,7 +275,8 @@ function render(next) {
   const processingView = processingControlView(
     next.processing,
     processingSubmitting,
-    processingRequestedPaused
+    processingRequestedPaused,
+    next.status
   );
   elements.processingCard.dataset.paused = String(processingView.paused);
   elements.processingState.textContent = processingView.statusText;
@@ -276,19 +285,25 @@ function render(next) {
     "aria-pressed",
     String(processingView.paused)
   );
-  elements.processingButton.disabled = processingSubmitting || resetting;
+  elements.processingButton.disabled =
+    processingSubmitting || resetting || processingView.disabled;
   elements.processingNote.textContent = processingView.note;
   const busy =
     submitting ||
     resetting ||
     processingView.paused ||
     ["queued", "running"].includes(next.analysis?.status);
-  elements.analyzeButton.disabled = busy;
+  const blocked = Boolean(next.analysis?.blockedReason);
+  elements.analyzeButton.disabled = busy || blocked;
   elements.analyzeButton.textContent = processingView.paused
     ? "Analysis paused"
-    : busy
-      ? "Analysis in progress…"
-      : "Analyze now";
+    : blocked
+      ? next.operatorParticipantId
+        ? "Waiting for client"
+        : "Select operator first"
+      : busy
+        ? "Analysis in progress…"
+        : "Analyze now";
   elements.resetButton.disabled = resetting || processingSubmitting;
   elements.resetButton.textContent = resetting
     ? "Clearing conversation…"
@@ -349,6 +364,7 @@ async function analyzeNow() {
 
 async function toggleProcessing() {
   if (!sessionId || !snapshot || processingSubmitting || resetting) return;
+  if (snapshot.status === "ended" || snapshot.status === "error") return;
   processingSubmitting = true;
   processingRequestedPaused = !snapshot.processing?.paused;
   elements.error.hidden = true;

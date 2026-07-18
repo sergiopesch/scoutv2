@@ -5,6 +5,7 @@ describe("processing control", () => {
   it("communicates the live and paused discard states", () => {
     expect(processingControlView({ paused: false })).toMatchObject({
       paused: false,
+      disabled: false,
       statusText: "Live",
       buttonText: "Pause live processing"
     });
@@ -13,6 +14,17 @@ describe("processing control", () => {
       statusText: "Paused",
       buttonText: "Continue live processing",
       note: expect.stringContaining("discarded")
+    });
+  });
+
+  it("disables live processing controls after the meeting ends", () => {
+    expect(
+      processingControlView({ paused: false }, false, true, "ended")
+    ).toMatchObject({
+      disabled: true,
+      statusText: "Meeting ended",
+      buttonText: "Live processing ended",
+      note: expect.stringContaining("analysis remain available")
     });
   });
 

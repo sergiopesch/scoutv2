@@ -306,6 +306,28 @@ describe("AnalysisCoordinator", () => {
     await coordinator.close();
   });
 
+  it("manually analyzes pending customer evidence after the meeting ends", async () => {
+    const store = new SessionStore();
+    const analyzer = new FakeAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1);
+    const session = store.create(
+      "https://zoom.example/test",
+      "session-ended-manual"
+    );
+
+    addUtterance(store, session.id, "utt-1");
+    store.setStatus(session.id, "ended");
+    await coordinator.analyzeNow(session.id);
+
+    expect(analyzer.calls).toHaveLength(1);
+    expect(store.getRequired(session.id)).toMatchObject({
+      status: "ended",
+      revision: 1,
+      analysis: { status: "idle", pendingUtteranceCount: 0 }
+    });
+    await coordinator.close();
+  });
+
   it("keeps ended status when a successful in-flight analysis completes", async () => {
     const store = new SessionStore();
     const analyzer = new BlockingAnalyzer();
@@ -360,9 +382,16 @@ describe("AnalysisCoordinator", () => {
 
     await coordinator.analyzeNow(session.id);
     expect(analyzer.calls).toHaveLength(0);
-    expect(store.getRequired(session.id).analysis.blockedReason).toMatch(/prospective customer/);
+    expect(store.getRequired(session.id).analysis.blockedReason).toMatch(
+      /Select yourself as operator/
+    );
 
-    store.setParticipantRole(session.id, "operator", "operator");
+    store.selectOperator(session.id, "operator");
+    await coordinator.analyzeNow(session.id);
+    expect(store.getRequired(session.id).analysis.blockedReason).toMatch(
+      /Waiting for a client/
+    );
+
     store.upsertParticipant(session.id, { id: "customer", name: "Taylor" });
     store.setParticipantRole(session.id, "customer", "customer");
     store.appendUtterance(session.id, {
