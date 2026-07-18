@@ -107,6 +107,25 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
         break;
       }
       case "utterance.recorded": {
+        if (event.utterance.finalized) {
+          snapshot.utterances = snapshot.utterances.filter(
+            (utterance) =>
+              utterance.finalized ||
+              utterance.participantId !== event.utterance.participantId ||
+              utterance.startedAt < event.utterance.startedAt - 0.5 ||
+              utterance.startedAt > event.utterance.endedAt + 0.5
+          );
+        } else if (
+          snapshot.utterances.some(
+            (utterance) =>
+              utterance.finalized &&
+              utterance.participantId === event.utterance.participantId &&
+              event.utterance.startedAt >= utterance.startedAt - 0.5 &&
+              event.utterance.startedAt <= utterance.endedAt + 0.5
+          )
+        ) {
+          break;
+        }
         const index = snapshot.utterances.findIndex(
           (utterance) => utterance.id === event.utterance.id
         );

@@ -30,6 +30,20 @@ const cumulative = [
 ];
 
 describe("groupTranscriptTurns", () => {
+  it("includes interim speech and marks it as partial", () => {
+    const partial = {
+      ...utterance("partial-1", 5, "person-a", "Alex", "We are speak"),
+      finalized: false
+    };
+
+    const turns = groupTranscriptTurns([...cumulative, partial]);
+    expect(turns.at(-1)?.fragments.at(-1)).toMatchObject({
+      id: "partial-1",
+      text: "We are speak",
+      finalized: false
+    });
+  });
+
   it("keeps every cumulative finalized fragment and evidence ID in sequence", () => {
     const turns = groupTranscriptTurns(cumulative);
     expect(turns.flatMap((turn) => turn.fragments.map((item) => item.id))).toEqual(

@@ -81,7 +81,11 @@ describe("Recall create bot request", () => {
           {
             type: "webhook",
             url: "https://scout.example.invalid/webhooks/recall/session-token-demo",
-            events: ["transcript.data", "participant_events.join"]
+            events: [
+              "transcript.partial_data",
+              "transcript.data",
+              "participant_events.join"
+            ]
           }
         ]
       },
@@ -141,10 +145,21 @@ describe("Recall event normalization", () => {
     }
   });
 
-  it("ignores partial transcripts", () => {
-    expect(
-      client().normalizeEvent(fixture("transcript.partial.json"))
-    ).toEqual([]);
+  it("normalizes partial transcripts without marking them finalized", () => {
+    const events = client().normalizeEvent(fixture("transcript.partial.json"));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "transcript.partial",
+      utterance: {
+        id: "transcript-demo:42:12250:partial",
+        participantId: "42",
+        participantName: "Alex Morgan",
+        text: "Sales exp",
+        startedAt: 12.25,
+        finalized: false
+      }
+    });
   });
 
   it("normalizes participant identity and absolute join time", () => {

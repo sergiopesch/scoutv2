@@ -659,6 +659,12 @@ a {
   scroll-margin-top: 1rem;
 }
 
+.utterance-fragment.is-partial {
+  color: var(--muted);
+  font-style: italic;
+  opacity: 0.82;
+}
+
 .utterance-id {
   margin-top: 0.55rem;
   color: var(--quiet);

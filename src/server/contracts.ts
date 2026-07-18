@@ -36,6 +36,7 @@ export interface RecallBotResult {
 
 export type NormalizedMeetingEvent =
   | { type: "participant.joined"; participant: Participant }
+  | { type: "transcript.partial"; utterance: Utterance }
   | { type: "transcript.final"; utterance: Utterance }
   | {
       type: "bot.status";

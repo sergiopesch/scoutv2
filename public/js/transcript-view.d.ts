@@ -4,6 +4,7 @@ export interface TranscriptFragment {
   text: string;
   startedAt: number;
   endedAt: number;
+  finalized: boolean;
 }
 
 export interface TranscriptTurn {

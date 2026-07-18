@@ -65,4 +65,42 @@ describe("SessionStore", () => {
       "https://zoom.example/test"
     );
   });
+
+  it("shows a partial immediately and replaces it with the matching final", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-partial");
+    const partial = {
+      id: "transcript-1:person-1:1000:partial",
+      sequence: 1_000,
+      participantId: "person-1",
+      participantName: "Alex",
+      text: "We manually",
+      startedAt: 1,
+      endedAt: 1.4,
+      finalized: false
+    };
+
+    const interim = store.appendUtterance(session.id, partial);
+    expect(interim.utterances).toEqual([partial]);
+    expect(interim.analysis.pendingUtteranceCount).toBe(0);
+
+    const final = {
+      ...partial,
+      id: "transcript-1:person-1:1000:2500:hash",
+      text: "We manually copy the invoices.",
+      endedAt: 2.5,
+      finalized: true
+    };
+    const completed = store.appendUtterance(session.id, final);
+    expect(completed.utterances).toEqual([final]);
+    expect(completed.analysis.pendingUtteranceCount).toBe(1);
+
+    const latePartial = store.appendUtterance(session.id, {
+      ...partial,
+      text: "We manually copy"
+    });
+    expect(latePartial.utterances).toEqual([final]);
+    expect(latePartial.analysis.pendingUtteranceCount).toBe(1);
+    expect(store.rebuild(session.id)).toEqual(latePartial);
+  });
 });

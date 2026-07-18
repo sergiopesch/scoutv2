@@ -47,7 +47,11 @@ export interface RecallCreateBotRequest {
     realtime_endpoints: Array<{
       type: "webhook";
       url: string;
-      events: Array<"transcript.data" | "participant_events.join">;
+      events: Array<
+        | "transcript.partial_data"
+        | "transcript.data"
+        | "participant_events.join"
+      >;
     }>;
   };
   output_media:
@@ -102,7 +106,11 @@ export const buildRecallCreateBotRequest = (
         {
           type: "webhook",
           url: webhookUrl,
-          events: ["transcript.data", "participant_events.join"]
+          events: [
+            "transcript.partial_data",
+            "transcript.data",
+            "participant_events.join"
+          ]
         }
       ]
     },
@@ -166,7 +174,9 @@ const joinWords = (words: Array<{ text: string }>): string =>
 const normalizeTranscript = (
   payload: Record<string, unknown>
 ): NormalizedMeetingEvent[] => {
-  if (payload.event !== "transcript.data") {
+  const isFinal = payload.event === "transcript.data";
+  const isPartial = payload.event === "transcript.partial_data";
+  if (!isFinal && !isPartial) {
     return [];
   }
 
@@ -196,16 +206,18 @@ const normalizeTranscript = (
 
   return [
     {
-      type: "transcript.final",
+      type: isFinal ? "transcript.final" : "transcript.partial",
       utterance: {
-        id: `${transcriptId}:${speakerId}:${startMillis}:${endMillis}:${contentHash}`,
+        id: isFinal
+          ? `${transcriptId}:${speakerId}:${startMillis}:${endMillis}:${contentHash}`
+          : `${transcriptId}:${speakerId}:${startMillis}:partial`,
         sequence: startMillis,
         participantId: speakerId,
         participantName: speakerName,
         text,
         startedAt,
         endedAt,
-        finalized: true
+        finalized: isFinal
       }
     }
   ];
@@ -360,10 +372,6 @@ export class RecallClient implements RecallAdapter {
   normalizeEvent(payload: unknown): NormalizedMeetingEvent[] {
     const record = asRecord(payload);
     if (!record) {
-      return [];
-    }
-
-    if (record.event === "transcript.partial_data") {
       return [];
     }
 

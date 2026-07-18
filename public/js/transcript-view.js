@@ -3,22 +3,23 @@ const FOLLOW_THRESHOLD_PX = 72;
 const cleanText = (value, fallback = "") =>
   typeof value === "string" && value.trim() ? value.trim() : fallback;
 
-const finalizedInSequence = (utterances = []) =>
+const visibleInSequence = (utterances = []) =>
   utterances
-    .filter((utterance) => utterance?.finalized)
+    .filter((utterance) => utterance?.text)
     .slice()
     .sort((left, right) => left.sequence - right.sequence);
 
 export function transcriptSignature(utterances = []) {
   return JSON.stringify(
-    finalizedInSequence(utterances).map((utterance) => [
+    visibleInSequence(utterances).map((utterance) => [
       utterance.id,
       utterance.sequence,
       utterance.participantId,
       utterance.participantName,
       utterance.text,
       utterance.startedAt,
-      utterance.endedAt
+      utterance.endedAt,
+      utterance.finalized
     ])
   );
 }
@@ -26,7 +27,7 @@ export function transcriptSignature(utterances = []) {
 export function groupTranscriptTurns(utterances = []) {
   const turns = [];
 
-  for (const utterance of finalizedInSequence(utterances)) {
+  for (const utterance of visibleInSequence(utterances)) {
     const speakerKey =
       cleanText(utterance.participantId) ||
       cleanText(utterance.participantName, "unknown-speaker");
@@ -36,7 +37,8 @@ export function groupTranscriptTurns(utterances = []) {
       sequence: utterance.sequence,
       text: cleanText(utterance.text, "[No transcript text]"),
       startedAt: utterance.startedAt,
-      endedAt: utterance.endedAt
+      endedAt: utterance.endedAt,
+      finalized: utterance.finalized === true
     };
 
     if (previous?.speakerKey === speakerKey) {
