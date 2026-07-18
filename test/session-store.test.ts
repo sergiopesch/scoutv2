@@ -1,0 +1,68 @@
+import { describe, expect, it } from "vitest";
+import { SessionStore } from "../src/server/session-store.js";
+
+describe("SessionStore", () => {
+  it("atomically replaces the accepted graph and increments the revision", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-1");
+    const graph = {
+      ...session.graph,
+      topic: { id: "sales", label: "Sales workflow" }
+    };
+
+    const updated = store.acceptGraph(session.id, graph);
+
+    expect(updated.revision).toBe(1);
+    expect(updated.graph.topic.label).toBe("Sales workflow");
+    expect(updated.analysis.status).toBe("idle");
+  });
+
+  it("keeps utterance revisions in the append-only log and rebuilds the projection", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-2");
+    const utterance = {
+      id: "utt-1",
+      sequence: 1,
+      participantId: "person-1",
+      participantName: "Alex",
+      text: "Invoices are copied into a spreadsheet.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    };
+
+    store.appendUtterance(session.id, utterance);
+    store.appendUtterance(session.id, {
+      ...utterance,
+      text: "Invoices are manually copied into a spreadsheet."
+    });
+
+    const updated = store.getRequired(session.id);
+    expect(updated.utterances).toHaveLength(1);
+    expect(updated.utterances[0]?.text).toContain("manually");
+    expect(updated.analysis.pendingUtteranceCount).toBe(1);
+    expect(
+      store
+        .getEvents(session.id)
+        .filter((event) => event.type === "utterance.recorded")
+    ).toHaveLength(2);
+    expect(store.rebuild(session.id)).toEqual(updated);
+
+    store.acceptGraph(session.id, updated.graph);
+    const redelivered = store.appendUtterance(session.id, utterance);
+    expect(redelivered.analysis.pendingUtteranceCount).toBe(0);
+  });
+
+  it("returns event copies that cannot rewrite canonical history", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-3");
+    const events = store.getEvents(session.id);
+    if (events[0]?.type === "session.created") {
+      events[0].meetingUrl = "https://attacker.example/changed";
+    }
+
+    expect(store.getRequired(session.id).meetingUrl).toBe(
+      "https://zoom.example/test"
+    );
+  });
+});

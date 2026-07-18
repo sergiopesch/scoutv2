@@ -1,0 +1,54 @@
+{
+  "event": "transcript.data",
+  "data": {
+    "data": {
+      "words": [
+        {
+          "text": "Sales",
+          "start_timestamp": { "relative": 12.25 },
+          "end_timestamp": { "relative": 12.7 }
+        },
+        {
+          "text": "exports",
+          "start_timestamp": { "relative": 12.72 },
+          "end_timestamp": { "relative": 13.1 }
+        },
+        {
+          "text": "leads",
+          "start_timestamp": { "relative": 13.12 },
+          "end_timestamp": { "relative": 13.48 }
+        },
+        {
+          "text": "weekly.",
+          "start_timestamp": { "relative": 13.5 },
+          "end_timestamp": { "relative": 13.95 }
+        }
+      ],
+      "language_code": "en",
+      "participant": {
+        "id": 42,
+        "name": "Alex Morgan",
+        "is_host": true,
+        "platform": "zoom",
+        "extra_data": {},
+        "email": null
+      }
+    },
+    "realtime_endpoint": {
+      "id": "rt-endpoint-demo",
+      "metadata": {}
+    },
+    "transcript": {
+      "id": "transcript-demo",
+      "metadata": {}
+    },
+    "recording": {
+      "id": "recording-demo",
+      "metadata": {}
+    },
+    "bot": {
+      "id": "bot-demo",
+      "metadata": {}
+    }
+  }
+}

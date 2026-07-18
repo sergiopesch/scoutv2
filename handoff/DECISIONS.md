@@ -21,11 +21,13 @@
   - `/whiteboard/:sessionId` for the meeting-safe canvas.
 - Recall Output Media shares the whiteboard into the meeting.
 - Codex app-server performs topic separation, business-model inference,
-  follow-up-question generation, and structured graph-patch generation.
-- The application owns canonical graph state; Codex proposes evidence-linked
-  patches.
+  follow-up-question generation, and complete graph-snapshot generation.
+- The application owns canonical graph state; Codex returns a complete,
+  evidence-linked `BusinessGraph` snapshot for each analysis cycle.
 - The web MVP uses TypeScript, a local Node server, and Mermaid.
 - One Codex thread is used per meeting.
+- Transcript input is chunked, but graph output is a complete replacement.
+- The server assigns revisions after validation; Codex does not control them.
 
 ## UX and reasoning constraints
 
