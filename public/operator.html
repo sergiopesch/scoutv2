@@ -4,11 +4,75 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Scout Operator</title>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main>
-      <h1>Scout Operator</h1>
-      <p>The live operator surface is being assembled.</p>
+    <main class="operator-shell">
+      <section class="operator-column" aria-labelledby="meeting-heading">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <div>
+            <p class="eyebrow">Live meeting cartography</p>
+            <p class="brand-name">Scout operator</p>
+          </div>
+        </div>
+        <p class="eyebrow">Active topic</p>
+        <h1 class="meeting-topic" id="meeting-heading">Loading meeting…</h1>
+        <ul class="integration-list" id="integrations" aria-label="Integration states"></ul>
+        <hr class="section-rule" />
+        <div class="section-heading">
+          <h2>Participants</h2>
+          <span class="count" id="participant-count">0 present</span>
+        </div>
+        <ul class="participant-list" id="participants"></ul>
+      </section>
+
+      <section class="operator-column transcript-column" aria-labelledby="transcript-heading">
+        <div class="transcript-toolbar">
+          <div>
+            <p class="eyebrow">Finalized + attributed</p>
+            <h2 id="transcript-heading">Live transcript</h2>
+          </div>
+          <div class="live-pill">
+            <span class="status-dot" id="stream-dot"></span>
+            <span id="stream-state">Connecting</span>
+          </div>
+        </div>
+        <ol class="transcript-list" id="transcript" aria-live="polite"></ol>
+      </section>
+
+      <aside class="operator-column analysis-panel" aria-labelledby="analysis-heading">
+        <div>
+          <p class="eyebrow">Business graph</p>
+          <div class="section-heading">
+            <h2 id="analysis-heading">Analysis control</h2>
+            <span class="count" id="analysis-updated">Not analyzed</span>
+          </div>
+          <div class="revision-card">
+            <div>
+              <p class="eyebrow">Accepted revision</p>
+              <div class="revision-number" id="revision">r0</div>
+            </div>
+            <div>
+              <p class="eyebrow">Pending</p>
+              <div class="revision-number" id="pending-count">0</div>
+            </div>
+          </div>
+          <div class="question-card">
+            <p class="eyebrow">Suggested next question</p>
+            <blockquote id="suggested-question">Waiting for enough evidence to suggest a follow-up.</blockquote>
+            <ul class="evidence-list" id="question-evidence"></ul>
+          </div>
+          <p class="inline-error" id="operator-error" role="alert" hidden></p>
+        </div>
+        <button class="analyze-button" id="analyze-button" type="button">
+          Analyze now
+        </button>
+        <p class="action-note" id="action-note">
+          Sends finalized utterances not yet included in the accepted graph.
+        </p>
+      </aside>
     </main>
+    <script type="module" src="/js/operator.js"></script>
   </body>
 </html>
