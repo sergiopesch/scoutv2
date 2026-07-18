@@ -1,0 +1,9 @@
+flowchart LR
+    Meeting["Zoom / Meet / Teams"] --> Recall["Recall bot"]
+    Recall -->|Attributed transcript events| Server["Local Node server"]
+    Server -->|Buffered utterances| Codex["Codex app-server"]
+    Codex -->|BusinessGraphPatch| Server
+    Server --> State["Canonical session state"]
+    State --> Operator["/operator/:sessionId"]
+    State --> Whiteboard["/whiteboard/:sessionId"]
+    Whiteboard -->|Recall Output Media| Meeting
