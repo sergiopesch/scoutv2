@@ -3,6 +3,7 @@ export interface AppConfig {
   host: string;
   publicBaseUrl?: string;
   analysisDelayMs: number;
+  allowDevIngest: boolean;
   codex: {
     binary: string;
     model: string;
@@ -86,6 +87,7 @@ export const loadConfig = (
       12_000,
       "ANALYSIS_DELAY_MS"
     ),
+    allowDevIngest: environment.SCOUT_ALLOW_DEV_INGEST === "true",
     codex: {
       binary: environment.CODEX_BINARY?.trim() || "codex",
       model: environment.CODEX_MODEL?.trim() || "gpt-5.6",

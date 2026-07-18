@@ -8,6 +8,7 @@ describe("loadConfig", () => {
     expect(config.recall).toBeUndefined();
     expect(config.codex.reasoningEffort).toBe("low");
     expect(config.analysisDelayMs).toBe(12_000);
+    expect(config.allowDevIngest).toBe(false);
   });
 
   it("normalizes public and Recall base URLs", () => {
