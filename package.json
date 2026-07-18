@@ -1,0 +1,28 @@
+{
+  "name": "scoutv2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Conversation-aware live business architecture whiteboard",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "generate:codex-schemas": "codex app-server generate-ts --out src/server/codex/generated"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "mermaid": "^11.16.0",
+    "svix": "^1.98.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
