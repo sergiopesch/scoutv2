@@ -20,7 +20,9 @@ class FakeAnalyzerClient implements AppServerAnalyzerClient {
   initializeCount = 0;
   turnResultText = "";
   holdTurn = false;
+  holdThreadStart = false;
   closed = false;
+  private releaseHeldThreadStart?: () => void;
 
   async initialize(): Promise<void> {
     this.initializeCount += 1;
@@ -32,6 +34,11 @@ class FakeAnalyzerClient implements AppServerAnalyzerClient {
   ): Promise<T> {
     this.requests.push({ method, params });
     if (method === "thread/start" || method === "thread/resume") {
+      if (this.holdThreadStart) {
+        await new Promise<void>((resolve) => {
+          this.releaseHeldThreadStart = resolve;
+        });
+      }
       return { thread: { id: "thread-1" } } as T;
     }
     if (method === "turn/start") {
@@ -40,7 +47,12 @@ class FakeAnalyzerClient implements AppServerAnalyzerClient {
       }
       return { turn: { id: "turn-1" } } as T;
     }
+    if (method === "turn/interrupt") return {} as T;
     throw new Error(`Unexpected request: ${method}`);
+  }
+
+  releaseThreadStart(): void {
+    this.releaseHeldThreadStart?.();
   }
 
   onNotification(
@@ -269,6 +281,56 @@ describe("CodexMeetingAnalyzer", () => {
       threadId: "thread-1",
       graph
     });
+    await analyzer.close();
+  });
+
+  it("retires the session thread and interrupts an active turn on reset", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify(graph);
+    client.holdTurn = true;
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    const firstAnalysis = analyzer.analyze(analyzeInput());
+    await waitUntil(() =>
+      client.requests.some((request) => request.method === "turn/start")
+    );
+    await analyzer.resetSession("session-1");
+
+    expect(
+      client.requests.find((request) => request.method === "turn/interrupt")
+    ).toMatchObject({
+      params: { threadId: "thread-1", turnId: "turn-1" }
+    });
+
+    client.completeTurn(client.turnResultText);
+    await firstAnalysis;
+    client.holdTurn = false;
+    await analyzer.analyze(analyzeInput());
+    expect(
+      client.requests.filter((request) => request.method === "thread/start")
+    ).toHaveLength(2);
+    await analyzer.close();
+  });
+
+  it("does not bind a thread that finishes starting after reset", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify(graph);
+    client.holdThreadStart = true;
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    const staleAnalysis = analyzer.analyze(analyzeInput());
+    await waitUntil(() =>
+      client.requests.some((request) => request.method === "thread/start")
+    );
+    await analyzer.resetSession("session-1");
+    client.releaseThreadStart();
+    await expect(staleAnalysis).rejects.toThrow("reset during analysis");
+
+    client.holdThreadStart = false;
+    await analyzer.analyze(analyzeInput());
+    expect(
+      client.requests.filter((request) => request.method === "thread/start")
+    ).toHaveLength(2);
     await analyzer.close();
   });
 });

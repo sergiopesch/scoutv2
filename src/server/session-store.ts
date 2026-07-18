@@ -69,8 +69,19 @@ export type SessionEvent =
   | {
       sequence: number;
       occurredAt: number;
+      type: "processing.paused-set";
+      paused: boolean;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
       type: "graph.accepted";
       graph: BusinessGraph;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
+      type: "session.context-reset";
     };
 
 type NewSessionEvent = SessionEvent extends infer Event
@@ -97,6 +108,11 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     graph: emptyBusinessGraph(),
     recall: { status: "idle" },
     codex: { status: "idle" },
+    processing: {
+      paused: false,
+      changedAt: created.occurredAt,
+      incomingTranscriptPolicy: "discard"
+    },
     analysis: { status: "idle", pendingUtteranceCount: 0 }
   };
 
@@ -178,6 +194,13 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
       case "analysis.state-set":
         snapshot.analysis = event.analysis;
         break;
+      case "processing.paused-set":
+        snapshot.processing = {
+          paused: event.paused,
+          changedAt: event.occurredAt,
+          incomingTranscriptPolicy: "discard"
+        };
+        break;
       case "graph.accepted":
         snapshot.graph = event.graph;
         snapshot.revision += 1;
@@ -189,6 +212,13 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
           lastError: undefined,
           blockedReason: undefined
         };
+        break;
+      case "session.context-reset":
+        snapshot.utterances = [];
+        snapshot.graph = emptyBusinessGraph();
+        snapshot.revision = 0;
+        snapshot.codex = { status: "idle" };
+        snapshot.analysis = { status: "idle", pendingUtteranceCount: 0 };
         break;
       case "session.created":
         throw new Error("session.created may only be the first event.");
@@ -295,8 +325,63 @@ export class SessionStore {
     return this.append(id, { type: "analysis.state-set", analysis });
   }
 
+  setProcessingPaused(id: string, paused: boolean): SessionSnapshot {
+    const current = this.getRequired(id);
+    if (current.processing.paused === paused) return current;
+    return this.append(id, { type: "processing.paused-set", paused });
+  }
+
   acceptGraph(id: string, graph: BusinessGraph): SessionSnapshot {
     return this.append(id, { type: "graph.accepted", graph });
+  }
+
+  resetContext(id: string): SessionSnapshot {
+    const current = this.getRequired(id);
+    const created = this.eventLogs.get(id)?.[0];
+    if (!created || created.type !== "session.created") {
+      throw new Error(`Session event log must begin with session.created: ${id}`);
+    }
+
+    const occurredAt = Date.now();
+    const retainedEvents: SessionEvent[] = [
+      structuredClone(created),
+      {
+        sequence: 1,
+        occurredAt,
+        type: "session.status-set",
+        status: current.status === "analyzing" ? "listening" : current.status
+      },
+      ...current.participants.map(
+        (participant, index): SessionEvent => ({
+          sequence: index + 2,
+          occurredAt,
+          type: "participant.upserted",
+          participant
+        })
+      )
+    ];
+    retainedEvents.push({
+      sequence: retainedEvents.length,
+      occurredAt,
+      type: "recall.state-set",
+      state: current.recall
+    });
+    retainedEvents.push({
+      sequence: retainedEvents.length,
+      occurredAt: current.processing.changedAt,
+      type: "processing.paused-set",
+      paused: current.processing.paused
+    });
+    retainedEvents.push({
+      sequence: retainedEvents.length,
+      occurredAt,
+      type: "session.context-reset"
+    });
+
+    this.eventLogs.set(id, structuredClone(retainedEvents));
+    this.rebuildProjection(id);
+    this.emit(id);
+    return this.getRequired(id);
   }
 
   subscribe(id: string, listener: Listener): () => void {

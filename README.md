@@ -72,6 +72,19 @@ The operator transcript also displays Recall's interim
 `transcript.partial_data` while someone is speaking. Interim text is replaced
 by the finalized utterance and is never sent to Codex for analysis.
 
+## Live processing pause
+
+The operator can pause and continue live processing without ending the meeting
+or replacing the Recall bot, transcript, graph, or Codex thread. When an active
+Recall bot is available, Scout uses Recall's pause/resume recording endpoints;
+Recall also halts real-time transcription while recording is paused. Scout
+keeps a server-side gate as a race and fallback boundary.
+
+Transcript events received while paused are intentionally discarded and are not
+buffered or replayed after continuing. Participant and bot-status events still
+update the session. A Codex analysis already running may finish, but no new
+automatic or manual analysis starts until live processing continues.
+
 ## Start a live session
 
 Create a session with the real meeting URL:

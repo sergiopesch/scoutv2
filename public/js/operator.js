@@ -8,6 +8,8 @@ import {
   prepareTranscriptUpdate,
   transcriptScrollTop
 } from "./transcript-view.js";
+import { processingControlView } from "./processing-control.js";
+import { resetSession } from "./reset-session-api.js";
 
 const elements = {
   topic: document.querySelector("#meeting-heading"),
@@ -18,12 +20,22 @@ const elements = {
   newTranscript: document.querySelector("#new-transcript"),
   streamDot: document.querySelector("#stream-dot"),
   streamState: document.querySelector("#stream-state"),
+  processingCard: document.querySelector("#processing-card"),
+  processingState: document.querySelector("#processing-state"),
+  processingButton: document.querySelector("#processing-button"),
+  processingNote: document.querySelector("#processing-note"),
   revision: document.querySelector("#revision"),
   pendingCount: document.querySelector("#pending-count"),
   analysisUpdated: document.querySelector("#analysis-updated"),
   question: document.querySelector("#suggested-question"),
   evidence: document.querySelector("#question-evidence"),
   analyzeButton: document.querySelector("#analyze-button"),
+  resetButton: document.querySelector("#reset-button"),
+  resetDialog: document.querySelector("#reset-dialog"),
+  resetCancel: document.querySelector("#reset-cancel"),
+  resetConfirm: document.querySelector("#reset-confirm"),
+  resetError: document.querySelector("#reset-error"),
+  resetStatus: document.querySelector("#reset-status"),
   actionNote: document.querySelector("#action-note"),
   error: document.querySelector("#operator-error")
 };
@@ -31,6 +43,10 @@ const elements = {
 const sessionId = parseSessionId();
 let snapshot;
 let submitting = false;
+let processingSubmitting = false;
+let processingRequestedPaused;
+let streamConnectionState = "connecting";
+let resetting = false;
 let renderedTranscriptSignature = "";
 
 function text(value, fallback = "—") {
@@ -68,6 +84,12 @@ function renderIntegrations(next) {
   elements.integrations.replaceChildren(
     integrationRow("Recall", next.recall),
     integrationRow("Codex", next.codex),
+    integrationRow("Processing", {
+      status: next.processing?.paused ? "paused" : "active",
+      detail: next.processing?.paused
+        ? "Incoming transcript events are discarded"
+        : "Live transcription and automatic analysis enabled"
+    }),
     integrationRow("Analysis", {
       status: next.analysis?.status,
       detail:
@@ -75,6 +97,18 @@ function renderIntegrations(next) {
         `${next.analysis?.pendingUtteranceCount ?? 0} utterances pending`
     })
   );
+}
+
+function renderStreamState() {
+  const paused = snapshot?.processing?.paused === true;
+  elements.streamDot.dataset.state = paused ? "paused" : streamConnectionState;
+  elements.streamState.textContent = paused
+    ? "Processing paused"
+    : streamConnectionState === "live"
+      ? "Updates live"
+      : streamConnectionState === "reconnecting"
+        ? "Reconnecting"
+        : "Connecting";
 }
 
 function renderParticipants(participants = []) {
@@ -222,6 +256,7 @@ function renderEvidence(ids = []) {
 
 function render(next) {
   snapshot = next;
+  renderStreamState();
   elements.topic.textContent = text(next.graph?.topic?.label, "Business discovery");
   renderIntegrations(next);
   renderParticipants(next.participants);
@@ -239,16 +274,44 @@ function render(next) {
     "Waiting for enough evidence to suggest a follow-up."
   );
   renderEvidence(question?.evidenceUtteranceIds);
-  const busy = submitting || ["queued", "running"].includes(next.analysis?.status);
+  const processingView = processingControlView(
+    next.processing,
+    processingSubmitting,
+    processingRequestedPaused
+  );
+  elements.processingCard.dataset.paused = String(processingView.paused);
+  elements.processingState.textContent = processingView.statusText;
+  elements.processingButton.textContent = processingView.buttonText;
+  elements.processingButton.setAttribute(
+    "aria-pressed",
+    String(processingView.paused)
+  );
+  elements.processingButton.disabled = processingSubmitting || resetting;
+  elements.processingNote.textContent = processingView.note;
+  const busy =
+    submitting ||
+    resetting ||
+    processingView.paused ||
+    ["queued", "running"].includes(next.analysis?.status);
   elements.analyzeButton.disabled = busy;
-  elements.analyzeButton.textContent = busy ? "Analysis in progress…" : "Analyze now";
+  elements.analyzeButton.textContent = processingView.paused
+    ? "Analysis paused"
+    : busy
+      ? "Analysis in progress…"
+      : "Analyze now";
+  elements.resetButton.disabled = resetting || processingSubmitting;
+  elements.resetButton.textContent = resetting
+    ? "Clearing conversation…"
+    : "Clear conversation";
   elements.actionNote.textContent = next.analysis?.lastError
     ? next.analysis.lastError
-    : next.analysis?.blockedReason
-      ? next.analysis.blockedReason
-      : next.analysis?.throttled
-        ? `Automatic analysis budget reached (${next.analysis?.automaticTurnsStarted ?? 0}/${next.analysis?.automaticTurnBudget ?? 0}). Analyze now remains available.`
-    : "Sends finalized utterances not yet included in the accepted graph.";
+    : processingView.paused
+      ? "Continue live processing before starting another analysis."
+      : next.analysis?.blockedReason
+        ? next.analysis.blockedReason
+        : next.analysis?.throttled
+          ? `Automatic analysis budget reached (${next.analysis?.automaticTurnsStarted ?? 0}/${next.analysis?.automaticTurnBudget ?? 0}). Analyze now remains available.`
+          : "Sends finalized utterances not yet included in the accepted graph.";
 }
 
 function showError(error) {
@@ -279,6 +342,72 @@ async function analyzeNow() {
   }
 }
 
+async function toggleProcessing() {
+  if (!sessionId || !snapshot || processingSubmitting || resetting) return;
+  processingSubmitting = true;
+  processingRequestedPaused = !snapshot.processing?.paused;
+  elements.error.hidden = true;
+  render(snapshot);
+  try {
+    const response = await fetch(`${sessionApiPath(sessionId)}/processing`, {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ paused: processingRequestedPaused })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        result.error || `Processing request failed (${response.status}).`
+      );
+    }
+    render(result);
+  } catch (error) {
+    showError(error);
+  } finally {
+    processingSubmitting = false;
+    processingRequestedPaused = undefined;
+    if (snapshot) render(snapshot);
+  }
+}
+
+function openResetDialog() {
+  if (resetting || processingSubmitting) return;
+  elements.resetError.hidden = true;
+  elements.resetDialog.showModal();
+}
+
+async function clearConversation() {
+  if (!sessionId || resetting || processingSubmitting) return;
+  resetting = true;
+  elements.error.hidden = true;
+  elements.resetError.hidden = true;
+  elements.resetStatus.textContent = "";
+  elements.resetCancel.disabled = true;
+  elements.resetConfirm.disabled = true;
+  elements.resetConfirm.textContent = "Clearing…";
+  if (snapshot) render(snapshot);
+  try {
+    const cleared = await resetSession(sessionId);
+    render(cleared);
+    elements.resetDialog.close();
+    elements.resetStatus.textContent =
+      "Conversation cleared. Recall and live meeting connections remain active.";
+  } catch (error) {
+    elements.resetError.hidden = false;
+    elements.resetError.textContent =
+      error instanceof Error ? error.message : String(error);
+  } finally {
+    resetting = false;
+    elements.resetCancel.disabled = false;
+    elements.resetConfirm.disabled = false;
+    elements.resetConfirm.textContent = "Clear conversation";
+    if (snapshot) render(snapshot);
+  }
+}
+
 async function start() {
   if (!sessionId) {
     showError(new Error("The operator URL is missing a valid session ID."));
@@ -286,6 +415,9 @@ async function start() {
     return;
   }
   elements.analyzeButton.addEventListener("click", analyzeNow);
+  elements.processingButton.addEventListener("click", toggleProcessing);
+  elements.resetButton.addEventListener("click", openResetDialog);
+  elements.resetConfirm.addEventListener("click", clearConversation);
   elements.newTranscript.addEventListener("click", () => {
     elements.transcript.scrollTop = elements.transcript.scrollHeight;
     elements.newTranscript.hidden = true;
@@ -295,15 +427,16 @@ async function start() {
     subscribeToSession(sessionId, {
       onSnapshot: render,
       onConnection(state) {
-        elements.streamDot.dataset.state = state;
-        elements.streamState.textContent =
-          state === "live" ? "Updates live" : "Reconnecting";
+        streamConnectionState = state;
+        renderStreamState();
       },
       onError: showError
     });
   } catch (error) {
     showError(error);
     elements.analyzeButton.disabled = true;
+    elements.processingButton.disabled = true;
+    elements.resetButton.disabled = true;
   }
 }
 

@@ -25,6 +25,27 @@
         <p class="eyebrow">Active topic</p>
         <h1 class="meeting-topic" id="meeting-heading">Loading meeting…</h1>
         <ul class="integration-list" id="integrations" aria-label="Integration states"></ul>
+        <div class="processing-card" id="processing-card" data-paused="false">
+          <div class="processing-card-heading">
+            <p class="eyebrow">Live processing</p>
+            <span
+              class="processing-state"
+              id="processing-state"
+              aria-live="polite"
+            >Live</span>
+          </div>
+          <button
+            class="processing-button"
+            id="processing-button"
+            type="button"
+            aria-pressed="false"
+          >
+            Pause live processing
+          </button>
+          <p class="action-note" id="processing-note">
+            Pausing keeps this session, bot, transcript, graph, and Codex thread intact.
+          </p>
+        </div>
         <hr class="section-rule" />
         <div class="section-heading">
           <h2>Participants</h2>
@@ -75,14 +96,45 @@
           </div>
           <p class="inline-error" id="operator-error" role="alert" hidden></p>
         </div>
-        <button class="analyze-button" id="analyze-button" type="button">
-          Analyze now
-        </button>
-        <p class="action-note" id="action-note">
-          Sends finalized utterances not yet included in the accepted graph.
-        </p>
+        <div class="operator-actions">
+          <button class="analyze-button" id="analyze-button" type="button">
+            Analyze now
+          </button>
+          <button class="reset-button" id="reset-button" type="button">
+            Clear conversation
+          </button>
+          <p class="action-note" id="action-note">
+            Sends finalized utterances not yet included in the accepted graph.
+          </p>
+          <p class="reset-status" id="reset-status" role="status" aria-live="polite"></p>
+        </div>
       </aside>
     </main>
+    <dialog class="reset-dialog" id="reset-dialog" aria-labelledby="reset-title">
+      <form method="dialog">
+        <p class="eyebrow">Reset test context</p>
+        <h2 id="reset-title">Clear this conversation?</h2>
+        <p>
+          This permanently clears the transcript (including partial speech), accepted
+          graph and revisions, suggested question and evidence, analysis state and
+          errors, and the current Codex context.
+        </p>
+        <p>
+          Scout stays running. This operator URL, the whiteboard URL, participants,
+          live updates, and the existing Recall bot and meeting connection stay
+          connected when healthy.
+        </p>
+        <p class="inline-error" id="reset-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button class="dialog-cancel" id="reset-cancel" value="cancel">
+            Keep conversation
+          </button>
+          <button class="dialog-confirm" id="reset-confirm" type="button">
+            Clear conversation
+          </button>
+        </div>
+      </form>
+    </dialog>
     <script type="module" src="/js/operator.js"></script>
   </body>
 </html>

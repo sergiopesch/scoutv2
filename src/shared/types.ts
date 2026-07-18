@@ -142,6 +142,11 @@ export interface SessionSnapshot {
     threadId?: string;
     activeTurnId?: string;
   };
+  processing: {
+    paused: boolean;
+    changedAt: number;
+    incomingTranscriptPolicy: "discard";
+  };
   analysis: {
     status: "idle" | "queued" | "running" | "error";
     pendingUtteranceCount: number;
@@ -161,6 +166,7 @@ export interface WhiteboardSnapshot {
   status: SessionStatus;
   graph: BusinessGraph;
   analysis: Pick<SessionSnapshot["analysis"], "status">;
+  processing: Pick<SessionSnapshot["processing"], "paused">;
 }
 
 export const toWhiteboardSnapshot = (
@@ -171,7 +177,8 @@ export const toWhiteboardSnapshot = (
   revision: snapshot.revision,
   status: snapshot.status,
   graph: structuredClone(snapshot.graph),
-  analysis: { status: snapshot.analysis.status }
+  analysis: { status: snapshot.analysis.status },
+  processing: { paused: snapshot.processing.paused }
 });
 
 export const emptyBusinessGraph = (): BusinessGraph => ({

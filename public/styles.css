@@ -98,6 +98,11 @@ summary:focus-visible {
 .status-dot[data-state="active"],
 .status-dot[data-state="listening"] { background: currentColor; }
 
+.status-dot[data-state="paused"] {
+  border-radius: 0;
+  background: currentColor;
+}
+
 .status-dot[data-state="analyzing"],
 .status-dot[data-state="running"],
 .status-dot[data-state="connecting"],
@@ -456,6 +461,68 @@ summary:focus-visible {
 .participant-role-note { margin: 0.35rem 0 0.8rem; color: rgb(250 250 247 / 55%); font-size: 0.7rem; line-height: 1.45; }
 .participant-list { display: grid; gap: 0.7rem; }
 
+.processing-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgb(250 250 247 / 28%);
+  background: var(--panel-raised);
+}
+
+.processing-card[data-paused="true"] {
+  border-style: dashed;
+  background: var(--field);
+}
+
+.processing-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.processing-card-heading .eyebrow {
+  margin: 0;
+}
+
+.processing-state {
+  color: var(--inverse);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.processing-card[data-paused="true"] .processing-state {
+  opacity: 0.65;
+}
+
+.processing-button {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--inverse);
+  border-radius: 0;
+  background: transparent;
+  color: var(--inverse);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.processing-button:hover:not(:disabled) {
+  background: var(--inverse);
+  color: var(--ink);
+}
+
+.processing-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.processing-card .action-note {
+  margin: 0;
+}
+
 .participant-avatar {
   display: grid;
   width: 1.75rem;
@@ -566,6 +633,109 @@ summary:focus-visible {
 .question-card blockquote { margin: 0.7rem 0 1rem; color: var(--inverse); font-family: var(--display); font-size: 1.35rem; line-height: 1.25; }
 .evidence-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .evidence-chip { max-width: 100%; overflow: hidden; padding: 0.24rem 0.38rem; border: 1px solid rgb(250 250 247 / 30%); color: rgb(250 250 247 / 70%); font-family: var(--mono); font-size: 0.55rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.operator-actions {
+  margin-top: auto;
+}
+
+.operator-actions .analyze-button {
+  margin-top: 0;
+}
+
+.reset-button {
+  width: 100%;
+  margin-top: 0.65rem;
+  padding: 0.8rem;
+  border: 1px solid rgb(250 250 247 / 42%);
+  background: transparent;
+  color: var(--inverse);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.reset-button:hover:not(:disabled) {
+  border-color: var(--inverse);
+  background: var(--inverse);
+  color: var(--ink);
+}
+
+.reset-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.reset-status {
+  min-height: 1.1rem;
+  margin: 0.5rem 0 0;
+  color: var(--inverse);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.reset-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 65%);
+}
+
+.reset-dialog::backdrop {
+  background: rgb(16 17 21 / 78%);
+  backdrop-filter: blur(3px);
+}
+
+.reset-dialog form {
+  padding: 1.5rem;
+}
+
+.reset-dialog h2 {
+  margin: 0.5rem 0 1rem;
+}
+
+.reset-dialog p:not(.eyebrow, .inline-error) {
+  color: var(--ink-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+}
+
+.dialog-cancel,
+.dialog-confirm {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.dialog-cancel {
+  border: 1px solid var(--ink-muted);
+  background: transparent;
+  color: var(--ink);
+}
+
+.dialog-confirm {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--inverse);
+}
+
+.dialog-cancel:disabled,
+.dialog-confirm:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 
 .analyze-button { margin-top: auto; padding: 1rem; }
 .action-note,

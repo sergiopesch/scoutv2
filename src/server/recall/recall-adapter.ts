@@ -365,6 +365,14 @@ export class RecallClient implements RecallAdapter {
     return { botId: body.id };
   }
 
+  async pauseRecording(botId: string): Promise<void> {
+    await this.setRecordingPaused(botId, true);
+  }
+
+  async resumeRecording(botId: string): Promise<void> {
+    await this.setRecordingPaused(botId, false);
+  }
+
   verifyWebhook(rawBody: string, headers: Record<string, string>): void {
     this.webhook.verify(rawBody, headers);
   }
@@ -380,5 +388,27 @@ export class RecallClient implements RecallAdapter {
       ...normalizeParticipant(record),
       ...normalizeBotStatus(record)
     ];
+  }
+
+  private async setRecordingPaused(
+    botId: string,
+    paused: boolean
+  ): Promise<void> {
+    const action = paused ? "pause_recording" : "resume_recording";
+    const response = await this.fetchImplementation(
+      `${this.apiBaseUrl}/bot/${encodeURIComponent(botId)}/${action}/`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: this.apiKey,
+          accept: "application/json"
+        }
+      }
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Recall ${paused ? "pause" : "resume"} recording failed with HTTP ${response.status}`
+      );
+    }
   }
 }

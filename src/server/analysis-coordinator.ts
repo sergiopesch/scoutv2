@@ -8,6 +8,7 @@ interface SessionAnalysisState {
   running: boolean;
   runAgain: boolean;
   automaticTurnsStarted: number;
+  generation: number;
 }
 
 const customerSelectionRequired =
@@ -25,6 +26,7 @@ export class AnalysisCoordinator {
   ) {}
 
   schedule(sessionId: string): void {
+    if (this.store.getRequired(sessionId).processing.paused) return;
     const state = this.stateFor(sessionId);
     const snapshot = this.store.getRequired(sessionId);
     if (this.isTerminal(snapshot.status)) return;
@@ -60,6 +62,13 @@ export class AnalysisCoordinator {
     automatic: boolean
   ): Promise<void> {
     const state = this.stateFor(sessionId);
+    if (this.store.getRequired(sessionId).processing.paused) {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = undefined;
+      }
+      return;
+    }
     if (state.timer) {
       clearTimeout(state.timer);
       state.timer = undefined;
@@ -91,6 +100,7 @@ export class AnalysisCoordinator {
     state.running = true;
     state.runAgain = false;
     if (automatic) state.automaticTurnsStarted += 1;
+    const generation = state.generation;
     this.store.setStatus(sessionId, "analyzing");
     this.store.setAnalysis(sessionId, {
       status: "running",
@@ -114,6 +124,7 @@ export class AnalysisCoordinator {
         newUtterances
       });
 
+      if (!this.isCurrent(sessionId, state, generation)) return;
       for (const utterance of newUtterances) {
         state.processedUtteranceIds.add(utterance.id);
       }
@@ -144,6 +155,7 @@ export class AnalysisCoordinator {
       this.store.acceptGraph(sessionId, result.graph);
       this.restoreListeningIfStillAnalyzing(sessionId);
     } catch (error) {
+      if (!this.isCurrent(sessionId, state, generation)) return;
       const message = error instanceof Error ? error.message : String(error);
       this.store.setCodex(sessionId, {
         status: "error",
@@ -162,8 +174,13 @@ export class AnalysisCoordinator {
       this.restoreListeningIfStillAnalyzing(sessionId);
     } finally {
       state.running = false;
+      if (!this.isCurrent(sessionId, state, generation)) return;
       const pendingCount = this.pendingUtteranceIds(sessionId, state).length;
-      if (state.runAgain && pendingCount > 0) {
+      if (
+        !this.store.getRequired(sessionId).processing.paused &&
+        state.runAgain &&
+        pendingCount > 0
+      ) {
         state.runAgain = false;
         if (this.canRunAutomatically(state)) {
           this.updateQueuedCount(sessionId, pendingCount);
@@ -175,6 +192,41 @@ export class AnalysisCoordinator {
         state.runAgain = false;
       }
     }
+  }
+
+  setPaused(sessionId: string, paused: boolean): void {
+    const state = this.stateFor(sessionId);
+    if (paused) {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = undefined;
+      }
+      state.runAgain = false;
+      const pendingCount = this.pendingUtteranceIds(sessionId, state).length;
+      const current = this.store.getRequired(sessionId).analysis;
+      if (!state.running && pendingCount > 0) {
+        this.store.setAnalysis(sessionId, {
+          ...current,
+          status: "idle",
+          pendingUtteranceCount: pendingCount
+        });
+      }
+      return;
+    }
+    this.schedule(sessionId);
+  }
+
+  async resetSession(sessionId: string): Promise<void> {
+    const current = this.sessions.get(sessionId);
+    if (current?.timer) clearTimeout(current.timer);
+    this.sessions.set(sessionId, {
+      processedUtteranceIds: new Set<string>(),
+      running: false,
+      runAgain: false,
+      automaticTurnsStarted: 0,
+      generation: (current?.generation ?? 0) + 1
+    });
+    await this.analyzer.resetSession?.(sessionId);
   }
 
   async close(): Promise<void> {
@@ -192,10 +244,19 @@ export class AnalysisCoordinator {
       processedUtteranceIds: new Set<string>(),
       running: false,
       runAgain: false,
-      automaticTurnsStarted: 0
+      automaticTurnsStarted: 0,
+      generation: 0
     };
     this.sessions.set(sessionId, created);
     return created;
+  }
+
+  private isCurrent(
+    sessionId: string,
+    state: SessionAnalysisState,
+    generation: number
+  ): boolean {
+    return this.sessions.get(sessionId) === state && state.generation === generation;
   }
 
   private pendingUtteranceIds(
