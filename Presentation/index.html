@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#101115" />
+  <meta name="description" content="Scout turns live customer discovery into evidence-linked, build-ready context for Codex." />
+  <link rel="icon" type="image/svg+xml" href="assets/ScoutIcon.svg" />
+  <title>Scout — Turn AI investment into shipped value</title>
+  <style>
+    :root {
+      --ink: #17181c;
+      --black: #101115;
+      --night: #101115;
+      --night-2: #1d1f25;
+      --night-3: #292c34;
+      --paper: #fafaf7;
+      --paper-2: #f1f1ec;
+      --acid: #fafaf7;
+      --signal: #17181c;
+      --blue: #fafaf7;
+      --muted-dark: #686a70;
+      --muted-light: #a8a9ad;
+      --line-dark: rgba(23, 24, 28, .14);
+      --line-light: rgba(250, 250, 247, .14);
+      --display: "Avenir Next", "Futura", sans-serif;
+      --serif: "Iowan Old Style", "Baskerville", serif;
+      --mono: "SFMono-Regular", "Menlo", monospace;
+      --ease: cubic-bezier(.22, 1, .36, 1);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      color: var(--paper);
+      background: #07080a;
+      font-family: var(--display);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+    button, a { font: inherit; }
+    button:focus-visible, a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+    h1, h2, h3, p { margin: 0; }
+    a { color: inherit; }
+
+    .viewport {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 25%, #24262d 0, #0a0b0e 46%, #050608 100%);
+    }
+    .stage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1440px;
+      height: 810px;
+      overflow: hidden;
+      transform-origin: top left;
+      background: var(--night);
+      box-shadow: 0 32px 100px rgba(0, 0, 0, .65);
+    }
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      overflow: hidden;
+      isolation: isolate;
+      background:
+        radial-gradient(circle at 84% 13%, rgba(250, 250, 247, .05), transparent 30%),
+        var(--night);
+    }
+    .slide.active { display: block; }
+    .slide::after {
+      content: "";
+      position: absolute;
+      z-index: 20;
+      inset: 0;
+      pointer-events: none;
+      opacity: .4;
+      mix-blend-mode: soft-light;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.075'/%3E%3C/svg%3E");
+    }
+    .slide.light {
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 82% 12%, rgba(41, 44, 52, .055), transparent 30%),
+        linear-gradient(145deg, #fff, var(--paper) 72%);
+    }
+    .slide.light::after { mix-blend-mode: multiply; opacity: .48; }
+    .pad { position: relative; z-index: 5; height: 100%; padding: 92px 84px 66px; }
+
+    .chrome {
+      position: absolute;
+      z-index: 30;
+      left: 42px;
+      right: 46px;
+      top: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: rgba(250,250,247,.52);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .light .chrome { color: rgba(23,24,28,.48); }
+    .brand { display: inline-flex; align-items: center; gap: 9px; }
+    .brand-mark {
+      width: 27px;
+      height: 27px;
+      display: block;
+      object-fit: contain;
+      border-radius: 7px;
+      box-shadow: 0 5px 14px rgba(0,0,0,.18);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      font: 760 12px/1 var(--display);
+      letter-spacing: .19em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 22px; height: 3px; background: currentColor; }
+    .serif { font-family: var(--serif); font-style: italic; font-weight: 400; }
+    .acid { color: var(--acid); }
+    .signal { color: currentColor; }
+    .blue { color: var(--blue); }
+    .ghost { color: rgba(250,250,247,.24); }
+    .light .ghost { color: rgba(23,24,28,.23); }
+
+    .reveal { opacity: 0; transform: translateY(24px); filter: blur(5px); }
+    .active .reveal { animation: rise .78s var(--ease) forwards; animation-delay: var(--d, 0s); }
+    @keyframes rise { to { opacity: 1; transform: none; filter: none; } }
+    .wipe { clip-path: inset(0 100% 0 0); }
+    .active .wipe { animation: wipe 1s var(--ease) forwards; animation-delay: var(--d, .2s); }
+    @keyframes wipe { to { clip-path: inset(0 0 0 0); } }
+    .source {
+      position: absolute;
+      z-index: 25;
+      left: 84px;
+      bottom: 42px;
+      max-width: 1180px;
+      color: rgba(250,250,247,.5);
+      font: 600 10px/1.4 var(--mono);
+      letter-spacing: .01em;
+    }
+    .light .source { color: rgba(23,24,28,.5); }
+    .source a { text-decoration-color: currentColor; text-underline-offset: 3px; }
+    .source a:hover { color: var(--acid); }
+    .light .source a:hover { color: var(--signal); }
+
+    /* 01 — market opening */
+    .market-open { background-color: #0b0c0f; }
+    .market-open .pad { display: flex; flex-direction: column; justify-content: center; padding-bottom: 78px; }
+    .market-kicker {
+      position: absolute;
+      z-index: 12;
+      left: 50%;
+      top: 50%;
+      width: 1180px;
+      color: var(--paper);
+      font: 680 92px/.9 var(--display);
+      letter-spacing: -.067em;
+      text-align: center;
+      transform: translate(-50%, -50%);
+      transform-origin: left top;
+      transition:
+        left .9s var(--ease),
+        top .9s var(--ease),
+        width .9s var(--ease),
+        font-size .9s var(--ease),
+        line-height .9s var(--ease),
+        letter-spacing .9s var(--ease),
+        text-align .45s var(--ease),
+        transform .9s var(--ease);
+    }
+    .market-kicker .kicker-prefix { display: block; font-family: var(--serif); font-style: italic; font-weight: 400; }
+    .market-kicker::before {
+      content: "";
+      display: inline-block;
+      width: 22px;
+      height: 3px;
+      margin-right: 11px;
+      vertical-align: middle;
+      background: currentColor;
+      opacity: 0;
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: opacity .35s .48s ease, transform .55s .48s var(--ease);
+    }
+    .market-open:not([data-current-beat="0"]) .market-kicker {
+      left: 84px;
+      top: 158px;
+      width: auto;
+      font-size: 12px;
+      line-height: 1;
+      letter-spacing: .19em;
+      text-align: left;
+      text-transform: uppercase;
+      transform: none;
+    }
+    .market-open:not([data-current-beat="0"]) .market-kicker .kicker-prefix { display: inline; font-family: inherit; font-style: normal; font-weight: inherit; }
+    .market-open:not([data-current-beat="0"]) .market-kicker::before { opacity: 1; transform: scaleX(1); }
+    .market-open[data-current-beat="0"] .source { opacity: 0 !important; animation: none !important; }
+    .market-open:not([data-current-beat="0"]) .source { animation: sourceAfterKicker .5s .34s var(--ease) both !important; }
+    @keyframes sourceAfterKicker { from { opacity: 0; } to { opacity: 1; } }
+    .market-core {
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 68px;
+      align-items: end;
+      margin-top: 34px;
+    }
+    .capital strong, .breakout strong { display: block; letter-spacing: -.095em; }
+    .capital strong { font: 700 171px/.72 var(--display); }
+    .breakout strong { font: 700 154px/.72 var(--display); }
+    .capital span, .breakout span { display: block; margin-top: 24px; font: 630 36px/.96 var(--display); letter-spacing: -.04em; }
+    .breakout small { display: block; margin-top: 12px; max-width: 310px; color: var(--muted-light); font: 650 11px/1.35 var(--mono); letter-spacing: .01em; }
+    .breakout { padding-left: 64px; border-left: 1px solid var(--line-light); }
+    .market-thesis {
+      display: block;
+      margin-top: 54px;
+      padding-top: 25px;
+      border-top: 1px solid var(--line-light);
+    }
+    .market-thesis h1 { max-width: 940px; font: 620 58px/.95 var(--display); letter-spacing: -.052em; }
+    .market-thesis h1 em { font-family: var(--serif); font-weight: 400; }
+
+    /* 02 — context leak */
+    .leak .pad { display: flex; flex-direction: column; justify-content: center; }
+    .leak h2 { max-width: 1120px; margin-top: 22px; font: 650 71px/.95 var(--display); letter-spacing: -.057em; }
+    .handoff {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      align-items: stretch;
+      margin-top: 66px;
+      border-top: 1px solid var(--line-dark);
+      border-bottom: 1px solid var(--line-dark);
+    }
+    .handoff-step { position: relative; min-height: 190px; display: grid; place-items: center; padding: 26px 18px; border-right: 1px solid var(--line-dark); text-align: center; }
+    .handoff-step:first-child { border-left: 1px solid var(--line-dark); }
+    .handoff-step strong { display: block; font: 650 21px/1.08 var(--display); }
+    .handoff-step::after { content: "→"; position: absolute; z-index: 2; right: -11px; top: 82px; color: var(--ink); font: 700 20px/1 var(--mono); }
+    .handoff-step:last-child { color: var(--paper); background: var(--ink); }
+    .handoff-step:last-child strong { font-size: 24px; line-height: 1.02; }
+    .handoff-step:last-child::after { display: none; }
+
+    /* 03 — Scout reveal */
+    .scout-reveal .pad { display: grid; grid-template-columns: 1.07fr .93fr; gap: 70px; align-items: center; }
+    .scout-reveal h2 { font: 700 130px/.76 var(--display); letter-spacing: -.09em; }
+    .scout-reveal h2 small { display: block; margin-bottom: 24px; font: 760 12px/1 var(--display); letter-spacing: .2em; text-transform: uppercase; }
+    .scout-reveal .definition { max-width: 700px; margin-top: 40px; color: var(--muted-dark); font: 500 25px/1.38 var(--display); letter-spacing: -.022em; }
+    .scout-reveal .definition span { display: block; }
+    .scout-reveal .definition span + span { margin-top: 3px; }
+    .scout-reveal .definition strong { color: var(--ink); font-weight: 680; }
+    .big-mark {
+      width: 480px;
+      height: 480px;
+      justify-self: end;
+      object-fit: contain;
+      filter: drop-shadow(0 26px 42px rgba(19,21,26,.17));
+    }
+    .codex-chip {
+      position: absolute;
+      right: 62px;
+      bottom: 62px;
+      padding: 13px 17px;
+      border: 1px solid var(--line-dark);
+      border-radius: 999px;
+      color: var(--ink);
+      background: rgba(250,250,247,.86);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: .11em;
+      text-transform: uppercase;
+      backdrop-filter: blur(10px);
+    }
+
+    /* 04 — mechanism */
+    .mechanism .pad { display: grid; grid-template-rows: auto 1fr; }
+    .mechanism h2 { max-width: 1100px; margin-top: 20px; font: 650 64px/.95 var(--display); letter-spacing: -.052em; }
+    .mechanism-flow { align-self: end; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+    .mechanism-card {
+      position: relative;
+      min-height: 296px;
+      display: grid;
+      place-items: center;
+      padding: 25px;
+      overflow: hidden;
+      border: 1px solid var(--line-light);
+      border-radius: 22px;
+      background: linear-gradient(145deg, rgba(250,250,247,.08), rgba(250,250,247,.025));
+    }
+    .mechanism-card h3 { margin: 0; max-width: 220px; text-align: center; font: 650 29px/1.03 var(--display); letter-spacing: -.035em; }
+    .mechanism-card::after {
+      content: "→";
+      position: absolute;
+      right: 20px;
+      top: 20px;
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-light);
+      border-radius: 50%;
+      color: var(--paper);
+      font: 700 16px/1 var(--mono);
+    }
+    .mechanism-card:last-child { border-color: rgba(250,250,247,.32); background: rgba(250,250,247,.07); }
+    .mechanism-card:last-child h3 { font-size: 33px; }
+
+    /* 05 — close */
+    .close .pad { display: flex; flex-direction: column; justify-content: center; }
+    .close h2 { max-width: 1250px; font: 670 94px/.89 var(--display); letter-spacing: -.069em; }
+    .close h2 span { display: block; }
+    .close .close-rule { width: 0; height: 4px; margin: 44px 0 29px; background: var(--acid); }
+    .close.active .close-rule { animation: expand .9s .4s var(--ease) forwards; }
+    @keyframes expand { to { width: 170px; } }
+    .close p { max-width: 860px; color: var(--muted-light); font: 500 24px/1.4 var(--display); letter-spacing: -.018em; }
+    .close .closing-mark { position: absolute; right: 70px; bottom: 52px; width: 220px; height: 220px; object-fit: contain; filter: drop-shadow(0 20px 34px rgba(0,0,0,.24)); }
+
+    /* Motion choreography — one focal movement per slide, then supporting detail. */
+    .slide .chrome { opacity: 0; transform: translateY(-8px); }
+    .slide.active .chrome { animation: chromeIn .5s .04s var(--ease) both; }
+    @keyframes chromeIn { to { opacity: 1; transform: none; } }
+
+    .market-open::before {
+      content: "";
+      position: absolute;
+      z-index: 0;
+      right: -220px;
+      top: -360px;
+      width: 760px;
+      height: 760px;
+      border: 1px solid rgba(250,250,247,.065);
+      border-radius: 50%;
+      box-shadow: 0 0 0 94px rgba(250,250,247,.015), 0 0 0 188px rgba(250,250,247,.008);
+      opacity: 0;
+      transform: scale(.82);
+    }
+    .market-open.active::before { animation: orbitIn 1.35s .12s var(--ease) both; }
+    @keyframes orbitIn { to { opacity: 1; transform: scale(1); } }
+    .market-thesis h1 em { display: inline-block; opacity: .28; transform: translateX(-10px); }
+    .market-open.active .market-thesis.is-revealed h1 em { animation: phraseFocus .72s .12s var(--ease) both; }
+    @keyframes phraseFocus { to { opacity: 1; transform: none; } }
+
+    .leak h2 .serif { position: relative; display: inline-block; }
+    .leak h2 .serif::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -8px;
+      height: 2px;
+      background: var(--ink);
+      transform: scaleX(0);
+      transform-origin: left;
+    }
+    .leak.active h2 .serif::after { animation: underlineIn .8s .48s var(--ease) both; }
+    @keyframes underlineIn { to { transform: scaleX(1); } }
+    .handoff-step { opacity: 0; transform: translateX(-16px); }
+    .leak.active .handoff-step { animation: handoffIn .42s var(--ease) both; }
+    .leak.active .handoff-step:nth-child(1) { animation-delay: .36s; }
+    .leak.active .handoff-step:nth-child(2) { animation-delay: .49s; }
+    .leak.active .handoff-step:nth-child(3) { animation-delay: .62s; }
+    .leak.active .handoff-step:nth-child(4) { animation-delay: .75s; }
+    .leak.active .handoff-step:nth-child(5) { animation-delay: .88s; }
+    .leak.active .handoff-step:nth-child(6) { animation: handoffImpact .64s 1.05s var(--ease) both; }
+    @keyframes handoffIn { to { opacity: 1; transform: none; } }
+    @keyframes handoffImpact {
+      0% { opacity: 0; transform: translateX(-12px) scale(.94); }
+      68% { opacity: 1; transform: translateX(5px) scale(1.035); }
+      100% { opacity: 1; transform: none; }
+    }
+
+    .scout-reveal.active h2.reveal { animation: wordmarkIn .86s .08s var(--ease) both; }
+    @keyframes wordmarkIn {
+      from { opacity: 0; transform: translateX(-28px); filter: blur(8px); letter-spacing: -.12em; }
+      to { opacity: 1; transform: none; filter: none; letter-spacing: -.09em; }
+    }
+    .scout-reveal.active .big-mark {
+      animation: logoArrive .96s .14s var(--ease) both;
+    }
+    @keyframes logoArrive {
+      from { opacity: 0; transform: translateY(34px) rotate(-5deg) scale(.82); filter: blur(12px) drop-shadow(0 8px 15px rgba(19,21,26,.08)); }
+      to { opacity: 1; transform: none; filter: blur(0) drop-shadow(0 26px 42px rgba(19,21,26,.17)); }
+    }
+    .scout-reveal.active .codex-chip { animation: codexPowerIn .72s .74s var(--ease) both; }
+    @keyframes codexPowerIn {
+      from { opacity: 0; transform: translateY(18px) scale(.94); filter: blur(5px); }
+      to { opacity: 1; transform: none; filter: none; }
+    }
+
+    .mechanism-card::before {
+      content: "";
+      position: absolute;
+      left: 25px;
+      right: 25px;
+      bottom: 0;
+      height: 2px;
+      background: var(--paper);
+      transform: scaleX(0);
+      transform-origin: left;
+    }
+    .mechanism.active .mechanism-card { animation: cardBuild .55s var(--ease) both; }
+    .mechanism.active .mechanism-card:nth-child(1) { animation-delay: .25s; }
+    .mechanism.active .mechanism-card:nth-child(2) { animation-delay: .4s; }
+    .mechanism.active .mechanism-card:nth-child(3) { animation-delay: .55s; }
+    .mechanism.active .mechanism-card:nth-child(4) { animation: codexCard .78s .72s var(--ease) both; }
+    .mechanism.active .mechanism-card::before { animation: powerLine .7s .7s var(--ease) both; }
+    .mechanism.active .mechanism-card:nth-child(2)::before { animation-delay: .85s; }
+    .mechanism.active .mechanism-card:nth-child(3)::before { animation-delay: 1s; }
+    .mechanism.active .mechanism-card:nth-child(4)::before { animation-delay: 1.15s; }
+    @keyframes cardBuild { from { opacity: 0; transform: translateY(30px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+    @keyframes codexCard {
+      0% { opacity: 0; transform: translateY(30px) scale(.94); filter: blur(6px); }
+      72% { opacity: 1; transform: translateY(-4px) scale(1.025); filter: none; box-shadow: 0 18px 45px rgba(0,0,0,.18); }
+      100% { opacity: 1; transform: none; filter: none; box-shadow: 0 12px 34px rgba(0,0,0,.14); }
+    }
+    @keyframes powerLine { to { transform: scaleX(1); } }
+
+    .close h2 span { opacity: 0; transform: translateY(28px); }
+    .close.active h2 span:first-child { animation: closeLineIn .68s .08s var(--ease) both; }
+    .close.active h2 span:last-child { animation: closeLineIn .74s .25s var(--ease) both; }
+    @keyframes closeLineIn { to { opacity: 1; transform: none; } }
+    .close.active .closing-mark { animation: closingMarkIn .9s .34s var(--ease) both; }
+    @keyframes closingMarkIn {
+      from { opacity: 0; transform: translateY(20px) rotate(4deg) scale(.84); filter: blur(9px) drop-shadow(0 5px 10px rgba(0,0,0,.1)); }
+      to { opacity: 1; transform: none; filter: blur(0) drop-shadow(0 20px 34px rgba(0,0,0,.24)); }
+    }
+
+    /* Presenter-controlled builds. Right arrow reveals one beat at a time. */
+    .slide [data-beat] {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .slide.active [data-beat]:not(.is-revealed) { animation: none !important; }
+    .slide.active [data-beat].is-revealed {
+      visibility: visible;
+      pointer-events: auto;
+      animation: beatRise .62s var(--beat-delay, 0s) var(--ease) both !important;
+    }
+    .slide.active [data-beat].is-revealed[data-motion="land"] { animation-name: beatLand !important; }
+    .slide.active [data-beat].is-revealed[data-motion="slide"] { animation-name: beatSlide !important; }
+    .slide.active [data-beat].is-revealed[data-motion="wipe"] { animation-name: beatWipe !important; }
+    .slide.active [data-beat].is-revealed[data-motion="impact"] { animation-name: beatImpact !important; animation-duration: .72s !important; }
+    .slide.active [data-beat].is-revealed[data-motion="logo"] { animation-name: beatLogo !important; animation-duration: .88s !important; }
+    .slide.active [data-beat].is-revealed[data-motion="power"] { animation-name: beatPower !important; animation-duration: .78s !important; }
+    .slide.active [data-beat].is-revealed[data-motion="rule"] { animation-name: beatRule !important; animation-duration: .7s !important; }
+    @keyframes beatRise {
+      from { opacity: 0; transform: translateY(24px); filter: blur(6px); }
+      to { opacity: 1; transform: none; filter: none; }
+    }
+    @keyframes beatLand {
+      0% { opacity: 0; transform: translateY(34px) scale(.9); filter: blur(8px); }
+      72% { opacity: 1; transform: translateY(-4px) scale(1.018); filter: none; }
+      100% { opacity: 1; transform: none; filter: none; }
+    }
+    @keyframes beatSlide {
+      from { opacity: 0; transform: translateX(-18px); filter: blur(5px); }
+      to { opacity: 1; transform: none; filter: none; }
+    }
+    @keyframes beatWipe {
+      from { opacity: 0; clip-path: inset(0 100% 0 0); filter: blur(4px); }
+      to { opacity: 1; clip-path: inset(0 0 0 0); filter: none; }
+    }
+    @keyframes beatImpact {
+      0% { opacity: 0; transform: translateX(-14px) scale(.93); filter: blur(6px); }
+      68% { opacity: 1; transform: translateX(5px) scale(1.035); filter: none; }
+      100% { opacity: 1; transform: none; filter: none; }
+    }
+    @keyframes beatLogo {
+      from { opacity: 0; transform: translateY(28px) rotate(-4deg) scale(.84); filter: blur(10px); }
+      to { opacity: 1; transform: none; filter: none; }
+    }
+    @keyframes beatPower {
+      0% { opacity: 0; transform: translateY(24px) scale(.93); filter: blur(7px); }
+      70% { opacity: 1; transform: translateY(-4px) scale(1.025); filter: none; box-shadow: 0 18px 45px rgba(0,0,0,.18); }
+      100% { opacity: 1; transform: none; filter: none; }
+    }
+    @keyframes beatRule { from { opacity: 1; width: 0; } to { opacity: 1; width: 170px; } }
+
+    .progress {
+      position: fixed;
+      z-index: 100;
+      left: 0;
+      top: 0;
+      width: 0;
+      height: 3px;
+      background: var(--acid);
+      transition: width .45s var(--ease), background .3s;
+    }
+    .controls {
+      position: fixed;
+      z-index: 110;
+      right: 20px;
+      bottom: 18px;
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      opacity: .26;
+      transition: opacity .2s;
+    }
+    .controls:hover, .controls:focus-within { opacity: 1; }
+    .control, .counter {
+      height: 34px;
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 9px;
+      color: var(--paper);
+      background: rgba(11,12,11,.88);
+      backdrop-filter: blur(16px);
+    }
+    .control { min-width: 34px; padding: 0 10px; cursor: pointer; }
+    .control:disabled { opacity: .35; cursor: not-allowed; }
+    .counter { min-width: 64px; display: grid; place-items: center; padding: 0 9px; color: var(--muted-light); font: 700 10px/1 var(--mono); }
+    .notes {
+      position: fixed;
+      z-index: 200;
+      right: 22px;
+      top: 22px;
+      width: min(430px, calc(100vw - 44px));
+      max-height: calc(100vh - 78px);
+      display: none;
+      padding: 24px;
+      overflow: auto;
+      border: 1px solid rgba(250,250,247,.28);
+      border-radius: 18px;
+      color: var(--paper);
+      background: rgba(13,15,19,.96);
+      box-shadow: 0 28px 80px rgba(0,0,0,.58);
+      backdrop-filter: blur(20px);
+    }
+    .notes.open { display: block; }
+    .notes-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+    .notes small { color: var(--muted-light); font: 700 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .notes h3 { margin: 18px 0 0; font: 650 24px/1.15 var(--display); }
+    .notes p { margin-top: 16px; color: #c7c7bf; font: 500 14px/1.62 var(--display); white-space: pre-line; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress" id="progress" role="progressbar" aria-label="Presentation progress" aria-valuemin="1" aria-valuemax="5" aria-valuenow="1"></div>
+
+  <main class="viewport" id="viewport" aria-label="Scout market vision presentation">
+    <div class="stage" id="stage">
+      <section class="slide market-open active" data-current-beat="0" data-theme="dark" data-title="Builders, the gap is your market." data-notes="0:00–0:18 · Eighteen seconds\n\nON ENTRY · ‘Builders, the gap is your market.’ Pause.\n\n→ ‘$581.7 billion went into AI last year.’\n\n→ ‘McKinsey says only 6 percent are getting serious business results. Most companies are not there yet.’\n\n→ ‘That gap is our market.’\n\nThese are independent market signals, not one ROI calculation. McKinsey’s precise high-performer definition is at least 5 percent enterprise-level EBIT impact from AI plus reported significant AI value. Stanford measured global corporate investment.">
+        <div class="chrome"><span class="brand"><img class="brand-mark" src="assets/ScoutIcon.svg" alt="" /> Scout</span><span>The gap</span></div>
+        <div class="pad">
+          <div class="market-kicker"><span class="kicker-prefix">Builders,</span> the gap is your market.</div>
+          <div class="market-core">
+            <div class="capital" data-beat="1" data-motion="land" style="--beat-delay:.3s"><strong>$581.7B</strong><span>went into AI.</span></div>
+            <div class="breakout" data-beat="2" data-motion="land"><strong>6%</strong><span>got serious results from AI.</span><small>Most companies aren't there yet.</small></div>
+          </div>
+          <div class="market-thesis" data-beat="3" data-motion="wipe">
+            <h1>That gap is<br><em>your market.</em></h1>
+          </div>
+        </div>
+        <div class="source reveal" style="--d:.56s">Independent market signals: <a href="https://hai.stanford.edu/news/inside-the-ai-index-12-takeaways-from-the-2026-report" target="_blank" rel="noreferrer">Stanford HAI, AI Index 2026</a> · <a href="https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai" target="_blank" rel="noreferrer">McKinsey, State of AI 2025</a></div>
+      </section>
+
+      <section class="slide leak light" data-theme="light" data-title="The first call is where value starts leaking." data-notes="0:18–0:30 · Twelve seconds\n\nON ENTRY · ‘Then the value leaks.’\n\n→ ‘It starts with a customer call.’\n\n→ ‘That becomes notes, a deck, a ticket, and a build.’\n\n→ ‘Then the customer finally says: that is not what I wanted.’\n\nEvery handoff looks reasonable. Together they separate the build from the customer’s original meaning.">
+        <div class="chrome"><span class="brand"><img class="brand-mark" src="assets/ScoutIcon.svg" alt="" /> Scout</span><span>The leak</span></div>
+        <div class="pad">
+          <div class="eyebrow reveal">The enterprise engagement path</div>
+          <h2 class="reveal" style="--d:.1s">The first call is where<br><span class="serif signal">value starts leaking.</span></h2>
+          <div class="handoff reveal" style="--d:.25s">
+            <div class="handoff-step" data-beat="1" data-motion="slide"><strong>Customer call</strong></div>
+            <div class="handoff-step" data-beat="2" data-motion="slide"><strong>Notes</strong></div>
+            <div class="handoff-step" data-beat="2" data-motion="slide" style="--beat-delay:.09s"><strong>Deck</strong></div>
+            <div class="handoff-step" data-beat="2" data-motion="slide" style="--beat-delay:.18s"><strong>Ticket</strong></div>
+            <div class="handoff-step" data-beat="2" data-motion="slide" style="--beat-delay:.27s"><strong>Build</strong></div>
+            <div class="handoff-step" data-beat="3" data-motion="impact"><strong>“That’s not what I wanted.”</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide scout-reveal light" data-theme="light" data-title="Scout closes the gap. Codex powers it." data-notes="0:30–0:42 · Twelve seconds\n\nON ENTRY · ‘Scout stops that loss.’\n\n→ ‘Scout finds what matters in the live customer conversation.’\n\n→ ‘Codex turns that approved context into working software. Codex is the power behind Scout.’\n\nScout listens with explicit consent. It is a trust and context system—not another summarizer.">
+        <div class="chrome"><span class="brand"><img class="brand-mark" src="assets/ScoutIcon.svg" alt="" /> Scout</span><span>The answer</span></div>
+        <div class="pad">
+          <div>
+            <h2 class="reveal"><small>The builder's edge</small>Scout<span class="serif signal">.</span></h2>
+            <p class="definition"><span data-beat="1" data-motion="slide"><strong>Scout finds what matters.</strong></span><span data-beat="2" data-motion="slide">Codex turns it into working software.</span></p>
+          </div>
+          <img class="big-mark reveal" style="--d:.16s" src="assets/ScoutIcon.svg" alt="Scout mark: a flowing route revealing one grounded signal" />
+          <div class="codex-chip" data-beat="2" data-motion="power" style="--beat-delay:.12s">Codex is the power behind Scout</div>
+        </div>
+      </section>
+
+      <section class="slide mechanism" data-theme="dark" data-title="Scout finds it. Codex builds it." data-notes="0:42–0:52 · Ten seconds\n\nON ENTRY · ‘Here is the whole motion.’\n\n→ ‘Conversation.’\n→ ‘Right problem.’\n→ ‘Human approval.’\n→ ‘Codex builds.’\n\nOpenAI proposes. Deterministic Scout code validates and commits. The human owns truth and approval; Codex builds from that approved reality.">
+        <div class="chrome"><span class="brand"><img class="brand-mark" src="assets/ScoutIcon.svg" alt="" /> Scout</span><span>The build</span></div>
+        <div class="pad">
+          <div>
+            <div class="eyebrow reveal acid">Built for builders</div>
+            <h2 class="reveal" style="--d:.1s">Scout finds it.<br><span class="serif ghost">Codex builds it.</span></h2>
+          </div>
+          <div class="mechanism-flow">
+            <article class="mechanism-card" data-beat="1" data-motion="slide"><h3>Conversation</h3></article>
+            <article class="mechanism-card" data-beat="2" data-motion="slide"><h3>Right problem</h3></article>
+            <article class="mechanism-card" data-beat="3" data-motion="slide"><h3>Human approval</h3></article>
+            <article class="mechanism-card" data-beat="4" data-motion="power"><h3>Codex builds</h3></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide close" data-theme="dark" data-title="Stop pitching pilots. Start shipping value." data-notes="0:52–1:00 · Eight seconds\n\nON ENTRY · ‘Builders: stop pitching pilots.’\n\n→ ‘Start shipping value.’\n\n→ ‘Scout finds the signal. Codex powers the build.’\n\nFinish on ‘build.’ Stop. Do not add another sentence.">
+        <div class="chrome"><span class="brand"><img class="brand-mark" src="assets/ScoutIcon.svg" alt="" /> Scout</span><span>The challenge</span></div>
+        <div class="pad">
+          <h2><span data-beat="0">Builders: stop pitching pilots.</span><span class="serif acid" data-beat="1">Start shipping value.</span></h2>
+          <div class="close-rule" data-beat="1" data-motion="rule"></div>
+          <p data-beat="2" data-motion="slide">Scout finds the signal. Codex powers the build.</p>
+          <img class="closing-mark" data-beat="2" data-motion="logo" style="--beat-delay:.1s" src="assets/ScoutIcon.svg" alt="Scout" />
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <nav class="controls" aria-label="Presentation controls">
+    <button class="control" id="notesBtn" type="button" title="Speaker notes (N)" aria-label="Open speaker notes">N</button>
+    <button class="control" id="prevBtn" type="button" title="Previous slide (←)" aria-label="Previous slide">←</button>
+    <div class="counter" id="counter" role="status" aria-live="polite">01 / 05</div>
+    <button class="control" id="nextBtn" type="button" title="Next slide (→)" aria-label="Next slide">→</button>
+    <button class="control" id="fullBtn" type="button" title="Fullscreen (F)" aria-label="Enter fullscreen">⛶</button>
+  </nav>
+
+  <aside class="notes" id="notes" aria-label="Private speaker notes" hidden>
+    <div class="notes-head"><small>Private speaker notes</small><button class="control" id="notesClose" type="button">Close</button></div>
+    <h3 id="notesTitle"></h3>
+    <p id="notesCopy"></p>
+  </aside>
+
+  <script>
+    (() => {
+      const stage = document.getElementById('stage');
+      const slides = [...document.querySelectorAll('.slide')];
+      const progress = document.getElementById('progress');
+      const counter = document.getElementById('counter');
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const fullBtn = document.getElementById('fullBtn');
+      const notesBtn = document.getElementById('notesBtn');
+      const notes = document.getElementById('notes');
+      const notesTitle = document.getElementById('notesTitle');
+      const notesCopy = document.getElementById('notesCopy');
+      const notesClose = document.getElementById('notesClose');
+      let current = Math.max(0, Math.min(slides.length - 1, Number(location.hash.slice(1)) - 1 || 0));
+      let currentBeat = 0;
+
+      const fitStage = () => {
+        const scale = Math.min(innerWidth / 1440, innerHeight / 810);
+        stage.style.left = `${Math.max(0, (innerWidth - 1440 * scale) / 2)}px`;
+        stage.style.top = `${Math.max(0, (innerHeight - 810 * scale) / 2)}px`;
+        stage.style.transform = `scale(${scale})`;
+      };
+
+      const maxBeatFor = (slide) => Math.max(0, ...[...slide.querySelectorAll('[data-beat]')].map((item) => Number(item.dataset.beat) || 0));
+
+      const updateBuild = (beat) => {
+        const slide = slides[current];
+        const maxBeat = maxBeatFor(slide);
+        currentBeat = Math.max(0, Math.min(maxBeat, beat));
+        slide.dataset.currentBeat = String(currentBeat);
+        slide.querySelectorAll('[data-beat]').forEach((item) => {
+          const revealed = Number(item.dataset.beat) <= currentBeat;
+          item.classList.toggle('is-revealed', revealed);
+          item.setAttribute('aria-hidden', String(!revealed));
+        });
+        prevBtn.disabled = current === 0 && currentBeat === 0;
+        nextBtn.disabled = current === slides.length - 1 && currentBeat === maxBeat;
+        nextBtn.setAttribute('aria-label', currentBeat < maxBeat ? 'Reveal next point' : 'Next slide');
+        prevBtn.setAttribute('aria-label', currentBeat > 0 ? 'Hide previous point' : 'Previous slide');
+      };
+
+      const show = (index, updateHash = true, revealAll = false) => {
+        current = Math.max(0, Math.min(slides.length - 1, index));
+        slides.forEach((slide, i) => {
+          const active = i === current;
+          slide.classList.toggle('active', active);
+          slide.setAttribute('aria-hidden', String(!active));
+          slide.inert = !active;
+        });
+        updateBuild(revealAll ? maxBeatFor(slides[current]) : 0);
+        const count = `${String(current + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+        counter.textContent = count;
+        progress.style.width = `${((current + 1) / slides.length) * 100}%`;
+        progress.style.background = slides[current].dataset.theme === 'light' ? '#17181c' : '#fafaf7';
+        progress.setAttribute('aria-valuenow', String(current + 1));
+        progress.setAttribute('aria-valuetext', `Slide ${current + 1} of ${slides.length}`);
+        notesTitle.textContent = slides[current].dataset.title || '';
+        notesCopy.textContent = slides[current].dataset.notes || '';
+        if (updateHash) history.replaceState(null, '', `#${current + 1}`);
+      };
+
+      const next = () => {
+        const maxBeat = maxBeatFor(slides[current]);
+        if (currentBeat < maxBeat) updateBuild(currentBeat + 1);
+        else if (current < slides.length - 1) show(current + 1);
+      };
+
+      const previous = () => {
+        if (currentBeat > 0) updateBuild(currentBeat - 1);
+        else if (current > 0) show(current - 1, true, true);
+      };
+
+      const setNotes = (open) => {
+        notes.hidden = !open;
+        notes.classList.toggle('open', open);
+        notesBtn.setAttribute('aria-label', open ? 'Close speaker notes' : 'Open speaker notes');
+        if (open) notesClose.focus({ preventScroll: true });
+      };
+
+      prevBtn.addEventListener('click', previous);
+      nextBtn.addEventListener('click', next);
+      notesBtn.addEventListener('click', () => setNotes(notes.hidden));
+      notesClose.addEventListener('click', () => setNotes(false));
+      fullBtn.addEventListener('click', () => document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.());
+      addEventListener('fullscreenchange', () => {
+        const active = Boolean(document.fullscreenElement);
+        fullBtn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+        fullBtn.textContent = active ? '×' : '⛶';
+      });
+      addEventListener('keydown', (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const key = event.key.toLowerCase();
+        if (event.key === 'Escape' && !notes.hidden) { setNotes(false); return; }
+        if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
+        if (event.key === ' ' && target?.matches('button')) return;
+        if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') { event.preventDefault(); next(); }
+        if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); previous(); }
+        if (event.key === 'Home') show(0);
+        if (event.key === 'End') show(slides.length - 1, true, true);
+        if (key === 'f') fullBtn.click();
+        if (key === 'n') { event.preventDefault(); setNotes(notes.hidden); }
+      });
+      addEventListener('hashchange', () => show(Number(location.hash.slice(1)) - 1, false));
+      addEventListener('resize', fitStage);
+
+      fitStage();
+      show(current, false);
+    })();
+  </script>
+</body>
+</html>
