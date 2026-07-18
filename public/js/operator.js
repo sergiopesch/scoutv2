@@ -100,6 +100,7 @@ function renderIntegrations(next) {
       status: next.analysis?.status,
       detail:
         next.analysis?.lastError ??
+        next.analysis?.blockedReason ??
         `${next.analysis?.pendingUtteranceCount ?? 0} utterances pending`
     })
   );
@@ -292,12 +293,17 @@ function render(next) {
     resetting ||
     processingView.paused ||
     ["queued", "running"].includes(next.analysis?.status);
-  elements.analyzeButton.disabled = busy;
+  const blocked = Boolean(next.analysis?.blockedReason);
+  elements.analyzeButton.disabled = busy || blocked;
   elements.analyzeButton.textContent = processingView.paused
     ? "Analysis paused"
-    : busy
-      ? "Analysis in progress…"
-      : "Analyze now";
+    : blocked
+      ? next.operatorParticipantId
+        ? "Waiting for client"
+        : "Select operator first"
+      : busy
+        ? "Analysis in progress…"
+        : "Analyze now";
   elements.resetButton.disabled = resetting || processingSubmitting;
   elements.resetButton.textContent = resetting
     ? "Clearing conversation…"

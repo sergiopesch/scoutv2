@@ -483,6 +483,59 @@ describe("Scout runtime", () => {
     await runtime.close();
   });
 
+  it("reports blocked manual analysis and drains pending evidence after ended-session operator selection", async () => {
+    const runtime = createScoutRuntime(baseConfig(), {
+      analyzer: new FakeAnalyzer()
+    });
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    const sessionId = created.body.sessionId as string;
+    runtime.store.upsertParticipant(sessionId, {
+      id: "operator",
+      name: "Stephen"
+    });
+    runtime.store.upsertParticipant(sessionId, {
+      id: "customer",
+      name: "Sergio"
+    });
+    runtime.store.appendUtterance(sessionId, {
+      id: "customer-1",
+      sequence: 1,
+      participantId: "customer",
+      participantName: "Sergio",
+      text: "Guest services manually reconciles member data.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+    runtime.store.setAnalysis(sessionId, {
+      status: "idle",
+      pendingUtteranceCount: 1,
+      blockedReason: "Select yourself as operator before analysis can start."
+    });
+    runtime.store.setStatus(sessionId, "ended");
+
+    const blocked = await request(runtime.app)
+      .post(`/api/sessions/${sessionId}/analyze`)
+      .expect(409);
+    expect(blocked.body.error).toContain("Select yourself as operator");
+
+    const selected = await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "operator" })
+      .expect(200);
+    expect(selected.body.analysis.blockedReason).toBeUndefined();
+    await eventually(() => runtime.store.getRequired(sessionId).revision === 1);
+    expect(runtime.store.getRequired(sessionId)).toMatchObject({
+      status: "ended",
+      revision: 1,
+      analysis: { status: "idle", pendingUtteranceCount: 0 }
+    });
+    await runtime.close();
+  });
+
   it("lets one human self-select as operator and rejects bot selection", async () => {
     const runtime = createScoutRuntime(baseConfig(), {
       analyzer: new FakeAnalyzer()

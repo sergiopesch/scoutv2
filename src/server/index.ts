@@ -556,9 +556,26 @@ export const createScoutRuntime = (
         sessionId,
         parsed.data.participantId
       );
-      coordinator.schedule(sessionId);
+      const hasCustomer = updated.participants.some(
+        (participant) => participant.role === "customer"
+      );
+      if (
+        updated.status === "ended" &&
+        updated.analysis.pendingUtteranceCount > 0 &&
+        hasCustomer
+      ) {
+        store.setAnalysis(sessionId, {
+          ...updated.analysis,
+          status: "queued",
+          blockedReason: undefined,
+          lastError: undefined
+        });
+        void coordinator.analyzeNow(sessionId);
+      } else {
+        coordinator.schedule(sessionId);
+      }
       response.setHeader("Cache-Control", "no-store");
-      response.json(updated);
+      response.json(store.getRequired(sessionId));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       response.status(400).json({ error: message });
@@ -573,6 +590,23 @@ export const createScoutRuntime = (
     }
     if (snapshot.processing.paused) {
       response.status(409).json({ error: "live processing is paused" });
+      return;
+    }
+    if (
+      !snapshot.participants.some(
+        (participant) => participant.role === "customer"
+      )
+    ) {
+      const humans = snapshot.participants.filter(
+        (participant) => !participant.isBot
+      );
+      const error =
+        humans.length === 0
+          ? "Waiting for participants to join before analysis can start."
+          : snapshot.operatorParticipantId === undefined
+            ? "Select yourself as operator before analysis can start."
+            : "Waiting for a client to join before analysis can start.";
+      response.status(409).json({ error });
       return;
     }
     void coordinator.analyzeNow(request.params.sessionId);
