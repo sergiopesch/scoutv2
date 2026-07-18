@@ -33,6 +33,10 @@ button {
   font: inherit;
 }
 
+a {
+  color: inherit;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--muted);
@@ -114,9 +118,345 @@ button {
 }
 
 .brand-name {
+  display: block;
   margin: 0;
   font-size: 1.05rem;
   letter-spacing: -0.02em;
+}
+
+.start-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 72% 28%, rgb(83 214 174 / 10%), transparent 25rem),
+    linear-gradient(rgb(83 214 174 / 3%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(83 214 174 / 3%) 1px, transparent 1px),
+    var(--canvas);
+  background-size: auto, 48px 48px, 48px 48px, auto;
+}
+
+.start-shell {
+  display: flex;
+  width: min(100%, 92rem);
+  min-height: 100vh;
+  margin: 0 auto;
+  flex-direction: column;
+  padding: 1.5rem clamp(1.25rem, 4vw, 4rem);
+}
+
+.start-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.start-brand-link {
+  margin: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.start-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.start-hero {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1.05fr) minmax(25rem, 0.8fr);
+  align-items: center;
+  gap: clamp(3rem, 8vw, 8rem);
+  padding: clamp(3rem, 8vh, 6.5rem) 0;
+}
+
+.start-intro h1 {
+  max-width: 46rem;
+  margin: 0.7rem 0 1.25rem;
+  font-size: clamp(3rem, 6.1vw, 6.25rem);
+  font-weight: 500;
+  letter-spacing: -0.062em;
+  line-height: 0.94;
+}
+
+.start-lede {
+  max-width: 39rem;
+  margin: 0;
+  color: #bac7c3;
+  font-size: clamp(1rem, 1.7vw, 1.25rem);
+  line-height: 1.6;
+}
+
+.start-steps {
+  display: grid;
+  max-width: 41rem;
+  margin: 3rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.start-steps li {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 1rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.start-steps strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.step-number {
+  color: var(--mint);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.start-card {
+  position: relative;
+  padding: clamp(1.4rem, 3vw, 2.4rem);
+  border: 1px solid #31443e;
+  background:
+    linear-gradient(145deg, rgb(83 214 174 / 6%), transparent 36%),
+    rgb(16 25 23 / 94%);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 28%);
+}
+
+.start-card::before {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 4rem;
+  height: 1px;
+  background: var(--mint);
+  content: "";
+}
+
+.start-card-heading h2 {
+  margin: 0.45rem 0 2rem;
+  font-size: clamp(1.45rem, 2.5vw, 2rem);
+  font-weight: 550;
+  letter-spacing: -0.035em;
+}
+
+.meeting-url-label {
+  display: block;
+  margin-bottom: 0.55rem;
+  color: #d7e0dd;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.meeting-url-control {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  border: 1px solid #3b4a45;
+  background: #0b1210;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.meeting-url-control:focus-within {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgb(83 214 174 / 12%);
+}
+
+.link-glyph {
+  padding-left: 1rem;
+  color: var(--mint);
+  font-family: var(--mono);
+}
+
+.meeting-url-control input {
+  min-width: 0;
+  padding: 1rem 1rem 1rem 0.75rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+.meeting-url-control input::placeholder {
+  color: #5f6d68;
+}
+
+.meeting-url-control input:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+#start-form[data-state="error"] .meeting-url-control {
+  border-color: var(--danger);
+}
+
+.field-hint,
+.form-message,
+.copy-feedback {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.form-message {
+  min-height: 1.1rem;
+  color: var(--amber);
+}
+
+#start-form[data-state="error"] .form-message {
+  color: #ff9b8b;
+}
+
+#start-form[data-state="success"] .form-message {
+  color: var(--mint);
+}
+
+.start-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1.1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--mint);
+  background: var(--mint);
+  color: #07110e;
+  cursor: pointer;
+  font-weight: 800;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.start-button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--mint);
+  transform: translateY(-1px);
+}
+
+.start-button:disabled {
+  border-color: #4b5a55;
+  background: #2a3834;
+  color: #9aa7a3;
+  cursor: wait;
+}
+
+#start-form[data-state="submitting"] .start-button span:last-child {
+  animation: breathe 1s ease-in-out infinite;
+}
+
+.session-ready {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid #326553;
+  background: rgb(83 214 174 / 7%);
+}
+
+.ready-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ready-mark {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mint);
+  color: #07110e;
+  font-weight: 900;
+}
+
+.ready-heading h3 {
+  margin: 0.1rem 0 0;
+  font-size: 1rem;
+}
+
+.session-ready > p {
+  margin: 0.7rem 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.session-link,
+.copy-link {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #44534e;
+  background: transparent;
+  color: #c4d0cc;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.session-link.primary {
+  border-color: var(--mint);
+  color: var(--mint);
+}
+
+.session-link:hover,
+.copy-link:hover {
+  border-color: var(--mint);
+  color: var(--mint);
+}
+
+.copy-feedback {
+  min-height: 1rem;
+}
+
+.admission-note {
+  display: flex;
+  gap: 0.75rem;
+  margin: 1.5rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.admission-note strong {
+  color: #d8e3df;
+}
+
+.admission-icon {
+  color: var(--amber);
+  font-family: var(--mono);
+}
+
+.start-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  color: var(--quiet);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .meeting-topic {
@@ -222,10 +562,34 @@ button {
 }
 
 .transcript-column {
+  position: relative;
   display: flex;
   max-height: 100vh;
   flex-direction: column;
   padding-bottom: 0;
+}
+
+.new-transcript-button {
+  position: absolute;
+  z-index: 3;
+  right: 1.5rem;
+  bottom: 1.2rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--mint);
+  background: #13231e;
+  color: var(--mint);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 35%);
+  text-transform: uppercase;
+}
+
+.new-transcript-button:hover {
+  background: var(--mint);
+  color: #07110e;
 }
 
 .transcript-toolbar {
@@ -289,6 +653,10 @@ button {
   color: #d7e0dd;
   font-size: 0.96rem;
   line-height: 1.52;
+}
+
+.utterance-fragment {
+  scroll-margin-top: 1rem;
 }
 
 .utterance-id {
@@ -563,6 +931,19 @@ button {
 }
 
 @media (max-width: 960px) {
+  .start-hero {
+    grid-template-columns: 1fr;
+    gap: 3.5rem;
+  }
+
+  .start-intro h1 {
+    max-width: 50rem;
+  }
+
+  .start-card {
+    width: min(100%, 42rem);
+  }
+
   .operator-shell {
     grid-template-columns: 1fr;
   }
@@ -582,6 +963,33 @@ button {
 
   .analyze-button {
     margin-top: 2rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .start-shell {
+    padding: 1.1rem;
+  }
+
+  .start-status {
+    display: none;
+  }
+
+  .start-hero {
+    gap: 2.5rem;
+    padding: 3rem 0;
+  }
+
+  .start-intro h1 {
+    font-size: clamp(2.8rem, 15vw, 4.25rem);
+  }
+
+  .start-steps {
+    margin-top: 2rem;
+  }
+
+  .start-footer {
+    flex-direction: column;
   }
 }
 

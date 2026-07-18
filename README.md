@@ -61,6 +61,13 @@ set +a
 npm run dev
 ```
 
+Automatic analysis uses leading-edge batching: the first finalized utterance
+starts a non-resetting `ANALYSIS_DELAY_MS` timer (1,500 ms by default).
+Additional finals join that pending batch without postponing it. If more finals
+arrive while Codex is analyzing, the next pass starts after the shorter,
+non-resetting `ANALYSIS_RERUN_DELAY_MS` interval (500 ms by default). The
+operator's **Analyze now** action bypasses an idle timer immediately.
+
 ## Start a live session
 
 Create a session with the real meeting URL:
@@ -101,7 +108,7 @@ curl -X POST \
   }'
 ```
 
-Analysis runs after `ANALYSIS_DELAY_MS`, or immediately with:
+Analysis runs after the bounded leading-edge delay, or immediately with:
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/sessions/SESSION_ID/analyze

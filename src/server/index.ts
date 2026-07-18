@@ -111,7 +111,8 @@ export const createScoutRuntime = (
   const coordinator = new AnalysisCoordinator(
     store,
     analyzer,
-    config.analysisDelayMs
+    config.analysisDelayMs,
+    config.analysisRerunDelayMs
   );
   const recall =
     dependencies.recall ??

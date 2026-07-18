@@ -14,7 +14,8 @@ export class AnalysisCoordinator {
   constructor(
     private readonly store: SessionStore,
     private readonly analyzer: MeetingAnalyzer,
-    private readonly delayMs = 12_000
+    private readonly initialDelayMs = 1_500,
+    private readonly rerunDelayMs = 500
   ) {}
 
   schedule(sessionId: string): void {
@@ -28,12 +29,8 @@ export class AnalysisCoordinator {
       return;
     }
 
-    if (state.timer) clearTimeout(state.timer);
     this.updateQueuedCount(sessionId, pendingCount);
-    state.timer = setTimeout(() => {
-      state.timer = undefined;
-      void this.analyzeNow(sessionId);
-    }, this.delayMs);
+    this.scheduleAfter(sessionId, state, this.initialDelayMs);
   }
 
   async analyzeNow(sessionId: string): Promise<void> {
@@ -103,7 +100,10 @@ export class AnalysisCoordinator {
       const pendingCount = this.pendingUtteranceIds(sessionId, state).length;
       if (state.runAgain && pendingCount > 0) {
         state.runAgain = false;
-        this.schedule(sessionId);
+        this.updateQueuedCount(sessionId, pendingCount);
+        this.scheduleAfter(sessionId, state, this.rerunDelayMs);
+      } else {
+        state.runAgain = false;
       }
     }
   }
@@ -149,5 +149,17 @@ export class AnalysisCoordinator {
       pendingUtteranceCount: pendingCount,
       lastError: undefined
     });
+  }
+
+  private scheduleAfter(
+    sessionId: string,
+    state: SessionAnalysisState,
+    delayMs: number
+  ): void {
+    if (state.timer) return;
+    state.timer = setTimeout(() => {
+      state.timer = undefined;
+      void this.analyzeNow(sessionId);
+    }, delayMs);
   }
 }

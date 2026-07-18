@@ -7,7 +7,8 @@ describe("loadConfig", () => {
 
     expect(config.recall).toBeUndefined();
     expect(config.codex.reasoningEffort).toBe("low");
-    expect(config.analysisDelayMs).toBe(12_000);
+    expect(config.analysisDelayMs).toBe(1_500);
+    expect(config.analysisRerunDelayMs).toBe(500);
     expect(config.allowDevIngest).toBe(false);
   });
 
@@ -30,6 +31,16 @@ describe("loadConfig", () => {
     expect(() =>
       loadConfig({ CODEX_REASONING_EFFORT: "ultra" })
     ).toThrow(/low, medium, or high/);
+  });
+
+  it("accepts explicit leading-batch and rerun delays", () => {
+    const config = loadConfig({
+      ANALYSIS_DELAY_MS: "900",
+      ANALYSIS_RERUN_DELAY_MS: "250"
+    });
+
+    expect(config.analysisDelayMs).toBe(900);
+    expect(config.analysisRerunDelayMs).toBe(250);
   });
 
   it("requires the workspace verification secret with a Recall key", () => {

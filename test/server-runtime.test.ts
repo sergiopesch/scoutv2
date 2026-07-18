@@ -14,6 +14,7 @@ const baseConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   port: 3000,
   host: "127.0.0.1",
   analysisDelayMs: 1,
+  analysisRerunDelayMs: 1,
   allowDevIngest: false,
   codex: {
     binary: "codex",
