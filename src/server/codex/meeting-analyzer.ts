@@ -230,8 +230,13 @@ export class CodexMeetingAnalyzer implements MeetingAnalyzer {
   private readonly effort?: CodexMeetingAnalyzerOptions["effort"];
   private readonly threadsBySession = new Map<string, string>();
   private readonly sessionsByThread = new Map<string, string>();
-  private readonly activeSessions = new Set<string>();
+  private readonly sessionGenerations = new Map<string, number>();
+  private readonly activeSessions = new Map<string, symbol>();
   private readonly activeThreads = new Set<string>();
+  private readonly activeTurnsBySession = new Map<
+    string,
+    { threadId: string; turnId: string; analysisToken: symbol }
+  >();
   private readonly scratchDirectories = new Map<string, string>();
   private readonly completedTurns = new Map<string, Turn>();
   private readonly messagesByTurn = new Map<string, AgentMessage[]>();
@@ -263,10 +268,16 @@ export class CodexMeetingAnalyzer implements MeetingAnalyzer {
       throw new Error("Codex analysis accepts finalized utterances only.");
     }
 
-    this.activeSessions.add(input.sessionId);
+    const analysisToken = Symbol(input.sessionId);
+    const generation = this.sessionGenerations.get(input.sessionId) ?? 0;
+    this.activeSessions.set(input.sessionId, analysisToken);
     try {
       await this.client.initialize();
       const threadId = await this.ensureThread(input);
+      if (!this.isCurrentGeneration(input.sessionId, generation)) {
+        this.releaseThreadBinding(input.sessionId, threadId);
+        throw new Error(`Session ${input.sessionId} was reset during analysis.`);
+      }
       if (this.activeThreads.has(threadId)) {
         throw new Error(
           `A Codex analysis turn is already active for thread ${threadId}.`
@@ -295,6 +306,21 @@ export class CodexMeetingAnalyzer implements MeetingAnalyzer {
             outputSchema: graphOutputSchema
           }
         );
+        if (!this.isCurrentGeneration(input.sessionId, generation)) {
+          this.releaseThreadBinding(input.sessionId, threadId);
+          void this.client
+            .request("turn/interrupt", {
+              threadId,
+              turnId: turnResponse.turn.id
+            })
+            .catch(() => {});
+          throw new Error(`Session ${input.sessionId} was reset during analysis.`);
+        }
+        this.activeTurnsBySession.set(input.sessionId, {
+          threadId,
+          turnId: turnResponse.turn.id,
+          analysisToken
+        });
 
         const turn = await this.waitForTurn(threadId, turnResponse.turn.id);
         if (turn.status !== "completed") {
@@ -311,10 +337,43 @@ export class CodexMeetingAnalyzer implements MeetingAnalyzer {
         return { threadId, graph };
       } finally {
         this.activeThreads.delete(threadId);
+        const activeTurn = this.activeTurnsBySession.get(input.sessionId);
+        if (activeTurn?.analysisToken === analysisToken) {
+          this.activeTurnsBySession.delete(input.sessionId);
+        }
       }
     } finally {
-      this.activeSessions.delete(input.sessionId);
+      if (this.activeSessions.get(input.sessionId) === analysisToken) {
+        this.activeSessions.delete(input.sessionId);
+      }
     }
+  }
+
+  async resetSession(sessionId: string): Promise<void> {
+    this.sessionGenerations.set(
+      sessionId,
+      (this.sessionGenerations.get(sessionId) ?? 0) + 1
+    );
+    const threadId = this.threadsBySession.get(sessionId);
+    if (threadId) {
+      this.threadsBySession.delete(sessionId);
+      this.sessionsByThread.delete(threadId);
+    }
+    this.activeSessions.delete(sessionId);
+
+    const activeTurn = this.activeTurnsBySession.get(sessionId);
+    this.activeTurnsBySession.delete(sessionId);
+    if (!activeTurn) return;
+
+    void this.client
+      .request("turn/interrupt", {
+        threadId: activeTurn.threadId,
+        turnId: activeTurn.turnId
+      })
+      .catch(() => {
+        // The coordinator generation barrier still rejects this turn if it
+        // completed or became unreachable before interruption was acknowledged.
+      });
   }
 
   async close(): Promise<void> {
@@ -377,6 +436,19 @@ export class CodexMeetingAnalyzer implements MeetingAnalyzer {
     this.threadsBySession.set(input.sessionId, threadId);
     this.sessionsByThread.set(threadId, input.sessionId);
     return threadId;
+  }
+
+  private isCurrentGeneration(sessionId: string, generation: number): boolean {
+    return (this.sessionGenerations.get(sessionId) ?? 0) === generation;
+  }
+
+  private releaseThreadBinding(sessionId: string, threadId: string): void {
+    if (this.threadsBySession.get(sessionId) === threadId) {
+      this.threadsBySession.delete(sessionId);
+    }
+    if (this.sessionsByThread.get(threadId) === sessionId) {
+      this.sessionsByThread.delete(threadId);
+    }
   }
 
   private async getScratchDirectory(sessionId: string): Promise<string> {

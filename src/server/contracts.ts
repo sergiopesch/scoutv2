@@ -19,6 +19,7 @@ export interface AnalyzeMeetingResult {
 
 export interface MeetingAnalyzer {
   analyze(input: AnalyzeMeetingInput): Promise<AnalyzeMeetingResult>;
+  resetSession?(sessionId: string): Promise<void>;
   close(): Promise<void>;
 }
 

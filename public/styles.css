@@ -806,6 +806,108 @@ a {
   transition: background 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
+.operator-actions {
+  margin-top: auto;
+}
+
+.operator-actions .analyze-button {
+  margin-top: 0;
+}
+
+.reset-button {
+  width: 100%;
+  margin-top: 0.65rem;
+  padding: 0.8rem;
+  border: 1px solid #68443d;
+  background: transparent;
+  color: #ffad9e;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.reset-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: rgb(255 118 95 / 8%);
+  color: #ffd3ca;
+}
+
+.reset-button:disabled {
+  color: var(--quiet);
+  cursor: wait;
+}
+
+.reset-status {
+  min-height: 1.1rem;
+  margin: 0.5rem 0 0;
+  color: var(--mint);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.reset-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid #68443d;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 65%);
+}
+
+.reset-dialog::backdrop {
+  background: rgb(3 8 7 / 78%);
+  backdrop-filter: blur(3px);
+}
+
+.reset-dialog form {
+  padding: 1.5rem;
+}
+
+.reset-dialog h2 {
+  margin: 0.5rem 0 1rem;
+}
+
+.reset-dialog p:not(.eyebrow, .inline-error) {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+}
+
+.dialog-cancel,
+.dialog-confirm {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.dialog-cancel {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+}
+
+.dialog-confirm {
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #160704;
+}
+
+.dialog-cancel:disabled,
+.dialog-confirm:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .analyze-button:hover:not(:disabled) {
   background: transparent;
   color: var(--mint);
