@@ -90,7 +90,7 @@ export const loadConfig = (
     allowDevIngest: environment.SCOUT_ALLOW_DEV_INGEST === "true",
     codex: {
       binary: environment.CODEX_BINARY?.trim() || "codex",
-      model: environment.CODEX_MODEL?.trim() || "gpt-5.6",
+      model: environment.CODEX_MODEL?.trim() || "gpt-5.6-sol",
       reasoningEffort: effort as AppConfig["codex"]["reasoningEffort"]
     },
     recall: recallApiKey

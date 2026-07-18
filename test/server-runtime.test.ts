@@ -17,7 +17,7 @@ const baseConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   allowDevIngest: false,
   codex: {
     binary: "codex",
-    model: "gpt-5.6",
+    model: "gpt-5.6-sol",
     reasoningEffort: "low"
   },
   ...overrides

@@ -163,8 +163,26 @@ describe("CodexMeetingAnalyzer", () => {
     );
     expect(turnStart?.params.outputSchema).toMatchObject({
       type: "object",
-      additionalProperties: false
+      additionalProperties: false,
+      required: [
+        "topic",
+        "nodes",
+        "edges",
+        "pains",
+        "contradictions",
+        "suggestedQuestion"
+      ]
     });
+    const outputSchema = turnStart?.params.outputSchema as {
+      properties?: {
+        edges?: {
+          items?: {
+            required?: string[];
+          };
+        };
+      };
+    };
+    expect(outputSchema.properties?.edges?.items?.required).toContain("label");
     expect(JSON.stringify(turnStart?.params.input)).toContain(utterance.id);
     expect(JSON.stringify(turnStart?.params.input)).toContain(
       "CURRENT ACCEPTED GRAPH"
@@ -182,6 +200,26 @@ describe("CodexMeetingAnalyzer", () => {
     await expect(analyzer.analyze(analyzeInput())).rejects.toThrow(
       "returned malformed structured JSON"
     );
+    await analyzer.close();
+  });
+
+  it("normalizes nullable structured-output optionals before domain validation", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify({
+      ...graph,
+      edges: graph.edges.map((edge) => ({ ...edge, label: null })),
+      suggestedQuestion: null
+    });
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    const result = await analyzer.analyze(analyzeInput());
+    expect(result).toMatchObject({
+      graph: {
+        edges: [{ id: "hubspot-to-sheet" }]
+      }
+    });
+    expect(result.graph.edges[0]?.label).toBeUndefined();
+    expect(result.graph.suggestedQuestion).toBeUndefined();
     await analyzer.close();
   });
 

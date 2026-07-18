@@ -97,7 +97,82 @@ Use only the supplied utterance IDs as evidence. Preserve previously supported f
 Distinguish current, desired, hypothesis, and unknown states. Do not invent participant identities.
 Keep labels concise for a 1280x720 workflow diagram. Return structured output only.`;
 
-const graphOutputSchema = z.toJSONSchema(BusinessGraphSchema);
+type JsonSchema = Record<string, unknown>;
+
+const asSchema = (value: unknown): JsonSchema | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonSchema)
+    : undefined;
+
+const nullableSchema = (schema: unknown): JsonSchema => ({
+  anyOf: [schema, { type: "null" }]
+});
+
+/**
+ * OpenAI structured outputs require every object property to appear in
+ * `required`. Domain-optional fields are therefore represented as nullable at
+ * the model boundary, then normalized back before Zod validation.
+ */
+const makeStructuredOutputCompatible = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(makeStructuredOutputCompatible);
+  }
+  const schema = asSchema(value);
+  if (!schema) return value;
+
+  const result = Object.fromEntries(
+    Object.entries(schema).map(([key, child]) => [
+      key,
+      makeStructuredOutputCompatible(child)
+    ])
+  ) as JsonSchema;
+  const properties = asSchema(schema.properties);
+  if (properties) {
+    const previouslyRequired = new Set(
+      Array.isArray(schema.required)
+        ? schema.required.filter((item): item is string => typeof item === "string")
+        : []
+    );
+    const compatibleProperties = Object.fromEntries(
+      Object.entries(properties).map(([key, child]) => {
+        const compatible = makeStructuredOutputCompatible(child);
+        return [
+          key,
+          previouslyRequired.has(key)
+            ? compatible
+            : nullableSchema(compatible)
+        ];
+      })
+    );
+    result.properties = compatibleProperties;
+    result.required = Object.keys(properties);
+    result.additionalProperties = false;
+  }
+  return result;
+};
+
+const graphOutputSchema = makeStructuredOutputCompatible(
+  z.toJSONSchema(BusinessGraphSchema)
+);
+
+const normalizeStructuredGraph = (value: unknown): unknown => {
+  const graph = asSchema(value);
+  if (!graph) return value;
+  const normalized = structuredClone(graph);
+  if (normalized.suggestedQuestion === null) {
+    delete normalized.suggestedQuestion;
+  }
+  if (Array.isArray(normalized.edges)) {
+    normalized.edges = normalized.edges.map((edge) => {
+      const record = asSchema(edge);
+      if (!record || record.label !== null) return edge;
+      const normalizedEdge = { ...record };
+      delete normalizedEdge.label;
+      return normalizedEdge;
+    });
+  }
+  return normalized;
+};
 
 const evidenceIdsFromGraph = (graph: BusinessGraph): Set<string> => {
   const ids = new Set<string>();
@@ -385,7 +460,9 @@ export class CodexMeetingAnalyzer implements MeetingAnalyzer {
       );
     }
 
-    const parsed = BusinessGraphSchema.safeParse(decoded);
+    const parsed = BusinessGraphSchema.safeParse(
+      normalizeStructuredGraph(decoded)
+    );
     if (!parsed.success) {
       throw new Error(
         `Codex turn ${turn.id} returned an invalid BusinessGraph: ${z.prettifyError(parsed.error)}`
