@@ -1,8 +1,71 @@
 # Scout v2
 
-Scout joins a live Zoom, Google Meet, or Teams call, receives speaker-attributed
-final transcript events from Recall.ai, and turns the conversation into a live
-business workflow map using Codex app-server.
+<p align="center">
+  <img src="Presentation/assets/ScoutIcon.svg" width="112" alt="Scout logo" />
+</p>
+
+> **Builders, the gap is your market.**
+>
+> **$581.7B** went into AI in 2025. Only **6%** of surveyed organizations were
+> getting serious enterprise-level value from it.
+
+Scout finds what matters in a live customer conversation. Codex turns that
+approved context into working software.
+
+## The one-minute deck
+
+**[Open the Scout market vision presentation →](Presentation/index.html)**
+
+The five-slide HTML deck is self-contained and built for a one-minute pitch.
+Use `→` to reveal each storytelling beat, `←` to reverse it, and `N` to open the
+speaker notes. See [the presentation guide](Presentation/README.md) for pacing
+and the complete controls.
+
+## The gap
+
+AI projects rarely fail because builders cannot build. They fail because the
+customer's meaning gets diluted before the build begins:
+
+```text
+Customer call → Notes → Deck → Ticket → Build → “That's not what I wanted.”
+```
+
+Every handoff looks reasonable. Together, they separate the implementation
+from the customer's original problem.
+
+Scout closes that gap. It listens with explicit consent, keeps evidence tied to
+attributed customer language, and gives people control over what becomes the
+accepted model of the business.
+
+```text
+Conversation → Right problem → Human approval → Codex builds
+```
+
+**Scout finds the signal. Codex powers the build.**
+
+The hackathon MVP proves the context path through the accepted live business
+graph. The deck shows the larger product vision: using that human-approved
+reality as the foundation for a Codex build.
+
+The market figures are independent signals, not a single ROI calculation.
+[Stanford HAI](https://hai.stanford.edu/news/inside-the-ai-index-12-takeaways-from-the-2026-report)
+reports $581.7B in global corporate AI investment during 2025.
+[McKinsey](https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai)
+classifies about 6% of its survey respondents as AI high performers: organizations
+reporting both significant AI value and at least 5% enterprise-level EBIT impact.
+
+## How Scout works
+
+Scout joins a live Zoom, Google Meet, or Teams call and receives
+speaker-attributed finalized transcript events from Recall.ai. For each meeting:
+
+1. Recall provides only finalized, attributed utterances for analysis.
+2. Scout maintains one persistent Codex app-server thread.
+3. Codex receives the accepted graph plus only the new finalized utterances.
+4. Codex returns a complete `BusinessGraph`; Scout validates and atomically
+   accepts it as the next revision.
+5. The browser receives the revision over SSE and completely rerenders the
+   Mermaid workflow, keeping the previous SVG visible until the new one succeeds.
 
 The hackathon MVP deliberately uses a full `BusinessGraph` snapshot per analysis
 turn. The browser replaces the previous graph and rerenders Mermaid rather than
@@ -142,7 +205,3 @@ npm run build
 The test suite covers snapshot coordination, runtime routing, Recall
 normalization and signature checks, Codex JSON-RPC/structured output handling,
 session storage, and deterministic Mermaid generation.
-
-## Presentation
-
-Open the self-contained [Scout market vision presentation](Presentation/index.html) in a modern browser.
