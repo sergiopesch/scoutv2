@@ -52,19 +52,32 @@ class FakeRecall implements RecallAdapter {
   createConfig?: RecallBotConfig;
   readonly recordingActions: string[] = [];
   failPause = false;
+  holdPause = false;
+  createCount = 0;
+  private releaseHeldPause?: () => void;
 
   async createBot(config: RecallBotConfig) {
+    this.createCount += 1;
     this.createConfig = config;
     return { botId: "bot-test" };
   }
 
   async pauseRecording(botId: string): Promise<void> {
     this.recordingActions.push(`pause:${botId}`);
+    if (this.holdPause) {
+      await new Promise<void>((resolve) => {
+        this.releaseHeldPause = resolve;
+      });
+    }
     if (this.failPause) throw new Error("Recall pause unavailable");
   }
 
   async resumeRecording(botId: string): Promise<void> {
     this.recordingActions.push(`resume:${botId}`);
+  }
+
+  releasePause(): void {
+    this.releaseHeldPause?.();
   }
 
   verifyWebhook(): void {}
@@ -387,6 +400,102 @@ describe("Scout runtime", () => {
       .send({ paused: true })
       .expect(502);
     expect(runtime.store.getRequired(sessionId).processing.paused).toBe(false);
+    await runtime.close();
+  });
+
+  it("resets context through the API without replacing the Recall bot or pause state", async () => {
+    const recall = new FakeRecall();
+    const config = baseConfig({
+      publicBaseUrl: "https://scout.example.invalid",
+      recall: {
+        region: "us-west-2",
+        apiKey: "test-key",
+        apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
+        workspaceVerificationSecret: "whsec_workspace",
+        statusWebhookSecret: "whsec_status",
+        outputMode: "screenshare"
+      }
+    });
+    const runtime = createScoutRuntime(config, {
+      analyzer: new FakeAnalyzer(),
+      recall,
+      statusRecall: recall
+    });
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    await eventually(
+      () =>
+        runtime.store.getRequired(created.body.sessionId).recall.botId ===
+        "bot-test"
+    );
+    const sessionId = created.body.sessionId as string;
+    runtime.store.upsertParticipant(sessionId, { id: "person-1", name: "Alex" });
+    runtime.store.appendUtterance(sessionId, {
+      id: "utt-1",
+      sequence: 1,
+      participantId: "person-1",
+      participantName: "Alex",
+      text: "Finance manually copies invoices.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+    runtime.store.setCodex(sessionId, {
+      status: "connected",
+      threadId: "thread-old"
+    });
+    runtime.store.acceptGraph(sessionId, {
+      ...runtime.store.getRequired(sessionId).graph,
+      topic: { id: "billing", label: "Billing workflow" }
+    });
+    recall.holdPause = true;
+    const pauseRequest = request(runtime.app)
+      .put(`/api/sessions/${sessionId}/processing`)
+      .send({ paused: true })
+      .expect(200)
+      .then((response) => response);
+    await eventually(() => recall.recordingActions.length === 1);
+
+    const received: number[] = [];
+    const unsubscribe = runtime.store.subscribe(sessionId, (snapshot) => {
+      received.push(snapshot.revision);
+    });
+    const resetRequest = request(runtime.app)
+      .post(`/api/sessions/${sessionId}/reset`)
+      .expect(200)
+      .then((response) => response);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(runtime.store.getRequired(sessionId).revision).toBe(1);
+
+    recall.releasePause();
+    const [, reset] = await Promise.all([pauseRequest, resetRequest]);
+    unsubscribe();
+
+    expect(reset.body).toMatchObject({
+      id: sessionId,
+      revision: 0,
+      utterances: [],
+      participants: [{ id: "person-1", name: "Alex" }],
+      recall: { status: "waiting", botId: "bot-test" },
+      codex: { status: "idle" },
+      processing: {
+        paused: true,
+        incomingTranscriptPolicy: "discard"
+      },
+      analysis: { status: "idle", pendingUtteranceCount: 0 }
+    });
+    expect(reset.body.graph.topic.label).toBe("Business discovery");
+    expect(received.at(-1)).toBe(0);
+    expect(recall.createCount).toBe(1);
+
+    const repeated = await request(runtime.app)
+      .post(`/api/sessions/${sessionId}/reset`)
+      .expect(200);
+    expect(repeated.body).toMatchObject({ revision: 0, utterances: [] });
+    expect(repeated.body.processing.paused).toBe(true);
+    expect(recall.createCount).toBe(1);
     await runtime.close();
   });
 });

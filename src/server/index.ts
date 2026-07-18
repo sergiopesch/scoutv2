@@ -143,12 +143,15 @@ export const createScoutRuntime = (
   const sessionTokens = new Map<string, string>();
   const botSessions = new Map<string, string>();
   const processingTransitions = new Map<string, Promise<void>>();
+  const sessionEpochs = new Map<string, number>();
   const publicDir = publicDirectory();
 
   const applyEvents = async (
     sessionId: string,
-    events: NormalizedMeetingEvent[]
+    events: NormalizedMeetingEvent[],
+    expectedEpoch: number
   ): Promise<void> => {
+    if ((sessionEpochs.get(sessionId) ?? 0) !== expectedEpoch) return;
     for (const event of events) {
       if (
         store.getRequired(sessionId).processing.paused &&
@@ -261,10 +264,12 @@ export const createScoutRuntime = (
       response.status(404).json({ error: "unknown webhook token" });
       return;
     }
+    const expectedEpoch = sessionEpochs.get(sessionId) ?? 0;
     createRecallWebhookHandler({
       adapter: recall,
-      onEvents: (events) => applyEvents(sessionId, events),
+      onEvents: (events) => applyEvents(sessionId, events, expectedEpoch),
       onAsyncError: (error) => {
+        if ((sessionEpochs.get(sessionId) ?? 0) !== expectedEpoch) return;
         const message = error instanceof Error ? error.message : String(error);
         store.setRecall(sessionId, { status: "error", detail: message });
       }
@@ -280,6 +285,7 @@ export const createScoutRuntime = (
       response.status(503).json({ error: "Recall is not configured" });
       return;
     }
+    const expectedEpochs = new Map(sessionEpochs);
     createRecallWebhookHandler({
       adapter: statusRecall,
       onEvents: async (events) => {
@@ -293,7 +299,11 @@ export const createScoutRuntime = (
           grouped.set(sessionId, group);
         }
         for (const [sessionId, sessionEvents] of grouped) {
-          await applyEvents(sessionId, sessionEvents);
+          await applyEvents(
+            sessionId,
+            sessionEvents,
+            expectedEpochs.get(sessionId) ?? 0
+          );
         }
       }
     })(request, response, next);
@@ -334,6 +344,7 @@ export const createScoutRuntime = (
     }
 
     const snapshot = store.create(meetingUrl);
+    sessionEpochs.set(snapshot.id, 0);
     const sessionToken = randomBytes(24).toString("base64url");
     sessionTokens.set(sessionToken, snapshot.id);
 
@@ -453,6 +464,28 @@ export const createScoutRuntime = (
     }
     void coordinator.analyzeNow(request.params.sessionId);
     response.status(202).json({ accepted: true });
+  });
+
+  app.post("/api/sessions/:sessionId/reset", async (request, response) => {
+    const sessionId = request.params.sessionId;
+    if (!store.get(sessionId)) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+
+    sessionEpochs.set(sessionId, (sessionEpochs.get(sessionId) ?? 0) + 1);
+    try {
+      await enqueueProcessingOperation(sessionId, async () => {
+        const retirement = coordinator.resetSession(sessionId);
+        store.resetContext(sessionId);
+        await retirement;
+      });
+      response.setHeader("Cache-Control", "no-store");
+      response.json(store.getRequired(sessionId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.status(500).json({ error: message });
+    }
   });
 
   if (config.allowDevIngest) {

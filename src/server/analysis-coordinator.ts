@@ -6,6 +6,7 @@ interface SessionAnalysisState {
   timer?: NodeJS.Timeout;
   running: boolean;
   runAgain: boolean;
+  generation: number;
 }
 
 export class AnalysisCoordinator {
@@ -62,6 +63,7 @@ export class AnalysisCoordinator {
 
     state.running = true;
     state.runAgain = false;
+    const generation = state.generation;
     this.store.setStatus(sessionId, "analyzing");
     this.store.setAnalysis(sessionId, {
       status: "running",
@@ -81,6 +83,7 @@ export class AnalysisCoordinator {
         newUtterances
       });
 
+      if (!this.isCurrent(sessionId, state, generation)) return;
       for (const utterance of newUtterances) {
         state.processedUtteranceIds.add(utterance.id);
       }
@@ -91,6 +94,7 @@ export class AnalysisCoordinator {
       this.store.acceptGraph(sessionId, result.graph);
       this.store.setStatus(sessionId, "listening");
     } catch (error) {
+      if (!this.isCurrent(sessionId, state, generation)) return;
       const message = error instanceof Error ? error.message : String(error);
       this.store.setCodex(sessionId, {
         status: "error",
@@ -105,6 +109,7 @@ export class AnalysisCoordinator {
       this.store.setStatus(sessionId, "listening");
     } finally {
       state.running = false;
+      if (!this.isCurrent(sessionId, state, generation)) return;
       const pendingCount = this.pendingUtteranceIds(sessionId, state).length;
       if (
         !this.store.getRequired(sessionId).processing.paused &&
@@ -142,6 +147,18 @@ export class AnalysisCoordinator {
     this.schedule(sessionId);
   }
 
+  async resetSession(sessionId: string): Promise<void> {
+    const current = this.sessions.get(sessionId);
+    if (current?.timer) clearTimeout(current.timer);
+    this.sessions.set(sessionId, {
+      processedUtteranceIds: new Set<string>(),
+      running: false,
+      runAgain: false,
+      generation: (current?.generation ?? 0) + 1
+    });
+    await this.analyzer.resetSession?.(sessionId);
+  }
+
   async close(): Promise<void> {
     for (const state of this.sessions.values()) {
       if (state.timer) clearTimeout(state.timer);
@@ -156,10 +173,19 @@ export class AnalysisCoordinator {
     const created: SessionAnalysisState = {
       processedUtteranceIds: new Set<string>(),
       running: false,
-      runAgain: false
+      runAgain: false,
+      generation: 0
     };
     this.sessions.set(sessionId, created);
     return created;
+  }
+
+  private isCurrent(
+    sessionId: string,
+    state: SessionAnalysisState,
+    generation: number
+  ): boolean {
+    return this.sessions.get(sessionId) === state && state.generation === generation;
   }
 
   private pendingUtteranceIds(

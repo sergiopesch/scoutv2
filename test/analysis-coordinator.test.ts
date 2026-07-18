@@ -259,4 +259,38 @@ describe("AnalysisCoordinator", () => {
     ]);
     await coordinator.close();
   });
+
+  it("rejects an in-flight result after reset and starts fresh next time", async () => {
+    const store = new SessionStore();
+    const analyzer = new BlockingAnalyzer();
+    const coordinator = new AnalysisCoordinator(store, analyzer, 1);
+    const session = store.create("https://zoom.example/test", "session-reset");
+
+    addUtterance(store, session.id, "utt-1");
+    const staleAnalysis = coordinator.analyzeNow(session.id);
+    await vi.waitFor(() => expect(analyzer.calls).toHaveLength(1));
+
+    await coordinator.resetSession(session.id);
+    store.resetContext(session.id);
+    analyzer.releaseFirst();
+    await staleAnalysis;
+
+    expect(store.getRequired(session.id)).toMatchObject({
+      revision: 0,
+      utterances: [],
+      codex: { status: "idle" },
+      analysis: { status: "idle", pendingUtteranceCount: 0 }
+    });
+
+    addUtterance(store, session.id, "utt-2");
+    await coordinator.analyzeNow(session.id);
+
+    expect(analyzer.calls).toHaveLength(2);
+    expect(analyzer.calls[1]).toMatchObject({
+      threadId: undefined,
+      currentGraph: { nodes: [], edges: [] }
+    });
+    expect(store.getRequired(session.id).revision).toBe(1);
+    await coordinator.close();
+  });
 });

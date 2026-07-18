@@ -9,6 +9,7 @@ import {
   transcriptScrollTop
 } from "./transcript-view.js";
 import { processingControlView } from "./processing-control.js";
+import { resetSession } from "./reset-session-api.js";
 
 const elements = {
   topic: document.querySelector("#meeting-heading"),
@@ -29,6 +30,12 @@ const elements = {
   question: document.querySelector("#suggested-question"),
   evidence: document.querySelector("#question-evidence"),
   analyzeButton: document.querySelector("#analyze-button"),
+  resetButton: document.querySelector("#reset-button"),
+  resetDialog: document.querySelector("#reset-dialog"),
+  resetCancel: document.querySelector("#reset-cancel"),
+  resetConfirm: document.querySelector("#reset-confirm"),
+  resetError: document.querySelector("#reset-error"),
+  resetStatus: document.querySelector("#reset-status"),
   actionNote: document.querySelector("#action-note"),
   error: document.querySelector("#operator-error")
 };
@@ -39,6 +46,7 @@ let submitting = false;
 let processingSubmitting = false;
 let processingRequestedPaused;
 let streamConnectionState = "connecting";
+let resetting = false;
 let renderedTranscriptSignature = "";
 
 function text(value, fallback = "—") {
@@ -238,10 +246,11 @@ function render(next) {
     "aria-pressed",
     String(processingView.paused)
   );
-  elements.processingButton.disabled = processingSubmitting;
+  elements.processingButton.disabled = processingSubmitting || resetting;
   elements.processingNote.textContent = processingView.note;
   const busy =
     submitting ||
+    resetting ||
     processingView.paused ||
     ["queued", "running"].includes(next.analysis?.status);
   elements.analyzeButton.disabled = busy;
@@ -250,6 +259,10 @@ function render(next) {
     : busy
       ? "Analysis in progress…"
       : "Analyze now";
+  elements.resetButton.disabled = resetting || processingSubmitting;
+  elements.resetButton.textContent = resetting
+    ? "Clearing conversation…"
+    : "Clear conversation";
   elements.actionNote.textContent = next.analysis?.lastError
     ? next.analysis.lastError
     : processingView.paused
@@ -286,7 +299,7 @@ async function analyzeNow() {
 }
 
 async function toggleProcessing() {
-  if (!sessionId || !snapshot || processingSubmitting) return;
+  if (!sessionId || !snapshot || processingSubmitting || resetting) return;
   processingSubmitting = true;
   processingRequestedPaused = !snapshot.processing?.paused;
   elements.error.hidden = true;
@@ -316,6 +329,41 @@ async function toggleProcessing() {
   }
 }
 
+function openResetDialog() {
+  if (resetting || processingSubmitting) return;
+  elements.resetError.hidden = true;
+  elements.resetDialog.showModal();
+}
+
+async function clearConversation() {
+  if (!sessionId || resetting || processingSubmitting) return;
+  resetting = true;
+  elements.error.hidden = true;
+  elements.resetError.hidden = true;
+  elements.resetStatus.textContent = "";
+  elements.resetCancel.disabled = true;
+  elements.resetConfirm.disabled = true;
+  elements.resetConfirm.textContent = "Clearing…";
+  if (snapshot) render(snapshot);
+  try {
+    const cleared = await resetSession(sessionId);
+    render(cleared);
+    elements.resetDialog.close();
+    elements.resetStatus.textContent =
+      "Conversation cleared. Recall and live meeting connections remain active.";
+  } catch (error) {
+    elements.resetError.hidden = false;
+    elements.resetError.textContent =
+      error instanceof Error ? error.message : String(error);
+  } finally {
+    resetting = false;
+    elements.resetCancel.disabled = false;
+    elements.resetConfirm.disabled = false;
+    elements.resetConfirm.textContent = "Clear conversation";
+    if (snapshot) render(snapshot);
+  }
+}
+
 async function start() {
   if (!sessionId) {
     showError(new Error("The operator URL is missing a valid session ID."));
@@ -324,6 +372,8 @@ async function start() {
   }
   elements.analyzeButton.addEventListener("click", analyzeNow);
   elements.processingButton.addEventListener("click", toggleProcessing);
+  elements.resetButton.addEventListener("click", openResetDialog);
+  elements.resetConfirm.addEventListener("click", clearConversation);
   elements.newTranscript.addEventListener("click", () => {
     elements.transcript.scrollTop = elements.transcript.scrollHeight;
     elements.newTranscript.hidden = true;
@@ -342,6 +392,7 @@ async function start() {
     showError(error);
     elements.analyzeButton.disabled = true;
     elements.processingButton.disabled = true;
+    elements.resetButton.disabled = true;
   }
 }
 

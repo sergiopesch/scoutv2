@@ -69,6 +69,11 @@ export type SessionEvent =
       occurredAt: number;
       type: "graph.accepted";
       graph: BusinessGraph;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
+      type: "session.context-reset";
     };
 
 type NewSessionEvent = SessionEvent extends infer Event
@@ -176,6 +181,13 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
           lastCompletedAt: event.occurredAt
         };
         break;
+      case "session.context-reset":
+        snapshot.utterances = [];
+        snapshot.graph = emptyBusinessGraph();
+        snapshot.revision = 0;
+        snapshot.codex = { status: "idle" };
+        snapshot.analysis = { status: "idle", pendingUtteranceCount: 0 };
+        break;
       case "session.created":
         throw new Error("session.created may only be the first event.");
     }
@@ -271,6 +283,55 @@ export class SessionStore {
 
   acceptGraph(id: string, graph: BusinessGraph): SessionSnapshot {
     return this.append(id, { type: "graph.accepted", graph });
+  }
+
+  resetContext(id: string): SessionSnapshot {
+    const current = this.getRequired(id);
+    const created = this.eventLogs.get(id)?.[0];
+    if (!created || created.type !== "session.created") {
+      throw new Error(`Session event log must begin with session.created: ${id}`);
+    }
+
+    const occurredAt = Date.now();
+    const retainedEvents: SessionEvent[] = [
+      structuredClone(created),
+      {
+        sequence: 1,
+        occurredAt,
+        type: "session.status-set",
+        status: current.status === "analyzing" ? "listening" : current.status
+      },
+      ...current.participants.map(
+        (participant, index): SessionEvent => ({
+          sequence: index + 2,
+          occurredAt,
+          type: "participant.upserted",
+          participant
+        })
+      )
+    ];
+    retainedEvents.push({
+      sequence: retainedEvents.length,
+      occurredAt,
+      type: "recall.state-set",
+      state: current.recall
+    });
+    retainedEvents.push({
+      sequence: retainedEvents.length,
+      occurredAt: current.processing.changedAt,
+      type: "processing.paused-set",
+      paused: current.processing.paused
+    });
+    retainedEvents.push({
+      sequence: retainedEvents.length,
+      occurredAt,
+      type: "session.context-reset"
+    });
+
+    this.eventLogs.set(id, structuredClone(retainedEvents));
+    this.rebuildProjection(id);
+    this.emit(id);
+    return this.getRequired(id);
   }
 
   subscribe(id: string, listener: Listener): () => void {

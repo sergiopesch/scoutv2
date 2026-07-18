@@ -123,4 +123,78 @@ describe("SessionStore", () => {
     ).toHaveLength(1);
     expect(store.rebuild(session.id)).toEqual(paused);
   });
+
+  it("clears test context atomically while preserving the live meeting", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-reset");
+    store.setStatus(session.id, "analyzing");
+    store.upsertParticipant(session.id, { id: "person-1", name: "Alex" });
+    store.setRecall(session.id, {
+      status: "active",
+      botId: "bot-1",
+      detail: "Connected"
+    });
+    store.appendUtterance(session.id, {
+      id: "utt-1",
+      sequence: 1,
+      participantId: "person-1",
+      participantName: "Alex",
+      text: "Finance manually copies invoices.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+    store.setCodex(session.id, {
+      status: "connected",
+      threadId: "thread-old"
+    });
+    store.setProcessingPaused(session.id, true);
+    store.acceptGraph(session.id, {
+      ...session.graph,
+      topic: { id: "billing", label: "Billing workflow" },
+      suggestedQuestion: {
+        text: "Who owns this?",
+        evidenceUtteranceIds: ["utt-1"]
+      }
+    });
+
+    const emitted: string[] = [];
+    const unsubscribe = store.subscribe(session.id, (snapshot) => {
+      emitted.push(`${snapshot.revision}:${snapshot.utterances.length}`);
+    });
+    const reset = store.resetContext(session.id);
+    unsubscribe();
+
+    expect(reset).toMatchObject({
+      id: session.id,
+      meetingUrl: session.meetingUrl,
+      status: "listening",
+      revision: 0,
+      participants: [{ id: "person-1", name: "Alex" }],
+      recall: { status: "active", botId: "bot-1", detail: "Connected" },
+      codex: { status: "idle" },
+      processing: {
+        paused: true,
+        incomingTranscriptPolicy: "discard"
+      },
+      analysis: { status: "idle", pendingUtteranceCount: 0 }
+    });
+    expect(reset.utterances).toEqual([]);
+    expect(reset.graph.nodes).toEqual([]);
+    expect(reset.graph.suggestedQuestion).toBeUndefined();
+    expect(emitted.at(-1)).toBe("0:0");
+    expect(
+      store
+        .getEvents(session.id)
+        .some(
+          (event) =>
+            event.type === "utterance.recorded" ||
+            event.type === "graph.accepted" ||
+            event.type === "codex.state-set"
+        )
+    ).toBe(false);
+    expect(store.getEvents(session.id).at(-1)?.type).toBe(
+      "session.context-reset"
+    );
+  });
 });
