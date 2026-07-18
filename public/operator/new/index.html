@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Invite Scout to a live meeting and map the business conversation as it happens."
+    />
+    <title>Start Scout</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="start-page">
+    <main class="start-shell">
+      <header class="start-brand">
+        <a class="brand-lockup start-brand-link" href="/operator/new/" aria-label="Scout home">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <span>
+            <span class="eyebrow">Live meeting cartography</span>
+            <span class="brand-name">Scout</span>
+          </span>
+        </a>
+        <span class="start-status">
+          <span class="status-dot" data-state="live" aria-hidden="true"></span>
+          Ready to join
+        </span>
+      </header>
+
+      <section class="start-hero" aria-labelledby="start-title">
+        <div class="start-intro">
+          <p class="eyebrow">New live session</p>
+          <h1 id="start-title">Turn the conversation into a living business map.</h1>
+          <p class="start-lede">
+            Paste a Zoom, Google Meet or Microsoft Teams link. Scout listens to
+            the meeting and builds the workflow as your team talks.
+          </p>
+
+          <ol class="start-steps" aria-label="How Scout starts">
+            <li>
+              <span class="step-number">01</span>
+              <span><strong>Paste the join link</strong> from your calendar invite.</span>
+            </li>
+            <li>
+              <span class="step-number">02</span>
+              <span><strong>Admit Live Architect</strong> if the host sees a waiting-room prompt.</span>
+            </li>
+            <li>
+              <span class="step-number">03</span>
+              <span><strong>Watch the map emerge</strong> while the meeting unfolds.</span>
+            </li>
+          </ol>
+        </div>
+
+        <section class="start-card" aria-labelledby="form-title">
+          <div class="start-card-heading">
+            <p class="eyebrow">Meeting link</p>
+            <h2 id="form-title">Where should Scout join?</h2>
+          </div>
+
+          <form id="start-form" novalidate>
+            <label class="meeting-url-label" for="meeting-url">
+              Zoom, Google Meet or Teams URL
+            </label>
+            <div class="meeting-url-control">
+              <span class="link-glyph" aria-hidden="true">↗</span>
+              <input
+                id="meeting-url"
+                name="meetingUrl"
+                type="url"
+                inputmode="url"
+                autocomplete="url"
+                placeholder="https://meet.google.com/…"
+                aria-describedby="meeting-url-hint form-message"
+                required
+              />
+            </div>
+            <p class="field-hint" id="meeting-url-hint">
+              Use the secure HTTPS join link from the meeting invitation.
+            </p>
+
+            <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
+
+            <button class="start-button" id="start-button" type="submit">
+              <span>Start Scout</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div class="session-ready" id="session-ready" hidden>
+            <div class="ready-heading">
+              <span class="ready-mark" aria-hidden="true">✓</span>
+              <div>
+                <p class="eyebrow">Session created</p>
+                <h3>Scout is ready to join.</h3>
+              </div>
+            </div>
+            <p id="redirect-message">Opening the operator view…</p>
+            <div class="session-actions">
+              <a class="session-link primary" id="operator-link" href="#">Open operator</a>
+              <a class="session-link" id="whiteboard-link" href="#" target="_blank" rel="noopener">
+                Open whiteboard
+              </a>
+              <button class="copy-link" id="copy-whiteboard" type="button">
+                Copy whiteboard link
+              </button>
+            </div>
+            <p class="copy-feedback" id="copy-feedback" role="status" aria-live="polite"></p>
+          </div>
+
+          <p class="admission-note">
+            <span class="admission-icon" aria-hidden="true">◎</span>
+            <span>
+              A participant named <strong>Live Architect</strong> will join.
+              The meeting host may need to admit it.
+            </span>
+          </p>
+        </section>
+      </section>
+
+      <footer class="start-footer">
+        <span>Scout maps people, systems, handoffs and pain points.</span>
+        <span>Live · attributed · revision-aware</span>
+      </footer>
+    </main>
+
+    <script type="module" src="/js/new-session.js"></script>
+  </body>
+</html>

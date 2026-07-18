@@ -4,6 +4,10 @@ import {
   loadSession,
   subscribeToSession
 } from "./session-stream.js";
+import {
+  prepareTranscriptUpdate,
+  transcriptScrollTop
+} from "./transcript-view.js";
 
 const elements = {
   topic: document.querySelector("#meeting-heading"),
@@ -11,6 +15,7 @@ const elements = {
   participants: document.querySelector("#participants"),
   participantCount: document.querySelector("#participant-count"),
   transcript: document.querySelector("#transcript"),
+  newTranscript: document.querySelector("#new-transcript"),
   streamDot: document.querySelector("#stream-dot"),
   streamState: document.querySelector("#stream-state"),
   revision: document.querySelector("#revision"),
@@ -26,6 +31,7 @@ const elements = {
 const sessionId = parseSessionId();
 let snapshot;
 let submitting = false;
+let renderedTranscriptSignature = "";
 
 function text(value, fallback = "—") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -95,31 +101,54 @@ function renderParticipants(participants = []) {
 }
 
 function renderTranscript(utterances = []) {
-  const finalized = utterances
-    .filter((utterance) => utterance.finalized)
-    .sort((left, right) => left.sequence - right.sequence);
-  const rows = finalized.map((utterance) => {
+  const update = prepareTranscriptUpdate(
+    utterances,
+    renderedTranscriptSignature,
+    {
+      scrollTop: elements.transcript.scrollTop,
+      scrollHeight: elements.transcript.scrollHeight,
+      clientHeight: elements.transcript.clientHeight
+    }
+  );
+  if (!update.changed) return;
+
+  const rows = update.turns.map((turn) => {
     const row = document.createElement("li");
     row.className = "utterance";
+    row.dataset.participantId = turn.participantId;
+    row.dataset.evidenceIds = turn.fragments
+      .map((fragment) => fragment.id)
+      .join(" ");
     const meta = document.createElement("div");
     meta.className = "utterance-meta";
     const speaker = document.createElement("span");
     speaker.className = "utterance-speaker";
-    speaker.textContent = text(utterance.participantName, "Unknown speaker");
+    speaker.textContent = turn.participantName;
     const time = document.createElement("time");
     if (
-      Number.isFinite(utterance.startedAt) &&
-      utterance.startedAt >= 100_000_000_000
+      Number.isFinite(turn.startedAt) &&
+      turn.startedAt >= 100_000_000_000
     ) {
-      time.dateTime = new Date(utterance.startedAt).toISOString();
+      time.dateTime = new Date(turn.startedAt).toISOString();
     }
-    time.textContent = formatClock(utterance.startedAt);
+    time.textContent = formatClock(turn.startedAt);
     meta.append(speaker, time);
     const body = document.createElement("p");
-    body.textContent = text(utterance.text, "[No transcript text]");
+    body.className = "utterance-body";
+    turn.fragments.forEach((fragment, index) => {
+      const fragmentText = document.createElement("span");
+      fragmentText.className = "utterance-fragment";
+      fragmentText.dataset.utteranceId = fragment.id;
+      fragmentText.dataset.sequence = String(fragment.sequence);
+      fragmentText.textContent = fragment.text;
+      if (index > 0) body.append(document.createTextNode(" "));
+      body.append(fragmentText);
+    });
     const id = document.createElement("div");
     id.className = "utterance-id";
-    id.textContent = text(utterance.id, "missing evidence ID");
+    id.textContent = turn.fragments
+      .map((fragment) => fragment.id)
+      .join(" · ");
     row.append(meta, body, id);
     return row;
   });
@@ -130,7 +159,12 @@ function renderTranscript(utterances = []) {
     rows.push(empty);
   }
   elements.transcript.replaceChildren(...rows);
-  elements.transcript.scrollTop = elements.transcript.scrollHeight;
+  renderedTranscriptSignature = update.signature;
+  elements.transcript.scrollTop = transcriptScrollTop(
+    update,
+    elements.transcript.scrollHeight
+  );
+  elements.newTranscript.hidden = update.follow;
 }
 
 function renderEvidence(ids = []) {
@@ -206,6 +240,10 @@ async function start() {
     return;
   }
   elements.analyzeButton.addEventListener("click", analyzeNow);
+  elements.newTranscript.addEventListener("click", () => {
+    elements.transcript.scrollTop = elements.transcript.scrollHeight;
+    elements.newTranscript.hidden = true;
+  });
   try {
     render(await loadSession(sessionId));
     subscribeToSession(sessionId, {
