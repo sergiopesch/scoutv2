@@ -16,6 +16,7 @@
     "test": "vitest run",
     "check": "npm test && npm run typecheck && npm run build && git diff --check",
     "typecheck": "tsc --noEmit",
+    "eval:transcript": "tsx src/evals/run-transcript-eval.ts",
     "generate:codex-schemas": "codex app-server generate-ts --out src/server/codex/generated"
   },
   "dependencies": {
