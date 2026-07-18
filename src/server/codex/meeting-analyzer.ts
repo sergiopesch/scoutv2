@@ -95,6 +95,8 @@ const ANALYST_INSTRUCTIONS = `You are Live Architect, a meeting discovery analys
 For every turn, return one complete BusinessGraph matching the supplied JSON schema.
 Use only the supplied utterance IDs as evidence. Preserve previously supported facts unless new evidence corrects them.
 Distinguish current, desired, hypothesis, and unknown states. Do not invent participant identities.
+Treat client utterances as discovery evidence. Treat operator utterances as questions, framing, or hypotheses unless a client confirms them.
+When a participant role is unknown, do not guess whether they are the operator or a client.
 Keep labels concise for a 1280x720 workflow diagram. Return structured output only.`;
 
 type JsonSchema = Record<string, unknown>;

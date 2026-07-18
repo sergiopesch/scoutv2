@@ -403,6 +403,65 @@ describe("Scout runtime", () => {
     await runtime.close();
   });
 
+  it("lets one human self-select as operator and rejects bot selection", async () => {
+    const runtime = createScoutRuntime(baseConfig(), {
+      analyzer: new FakeAnalyzer()
+    });
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    const sessionId = created.body.sessionId as string;
+    runtime.store.upsertParticipant(sessionId, {
+      id: "person-1",
+      name: "Stephen",
+      role: "unknown"
+    });
+    runtime.store.upsertParticipant(sessionId, {
+      id: "person-2",
+      name: "Maya",
+      role: "unknown"
+    });
+    runtime.store.upsertParticipant(sessionId, {
+      id: "bot-1",
+      name: "Live Architect",
+      role: "unknown",
+      isBot: true
+    });
+
+    const selected = await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "person-1" })
+      .expect(200);
+    expect(selected.body.operatorParticipantId).toBe("person-1");
+    expect(selected.body.participants).toMatchObject([
+      { id: "person-1", role: "operator" },
+      { id: "person-2", role: "client" },
+      { id: "bot-1", role: "unknown", isBot: true }
+    ]);
+
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "bot-1" })
+      .expect(400);
+    await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "missing" })
+      .expect(400);
+
+    const corrected = await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/operator`)
+      .send({ participantId: "person-2" })
+      .expect(200);
+    expect(corrected.body.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "person-1", role: "client" }),
+        expect.objectContaining({ id: "person-2", role: "operator" })
+      ])
+    );
+    await runtime.close();
+  });
+
   it("resets context through the API without replacing the Recall bot or pause state", async () => {
     const recall = new FakeRecall();
     const config = baseConfig({
@@ -431,7 +490,11 @@ describe("Scout runtime", () => {
         "bot-test"
     );
     const sessionId = created.body.sessionId as string;
-    runtime.store.upsertParticipant(sessionId, { id: "person-1", name: "Alex" });
+    runtime.store.upsertParticipant(sessionId, {
+      id: "person-1",
+      name: "Alex",
+      role: "unknown"
+    });
     runtime.store.appendUtterance(sessionId, {
       id: "utt-1",
       sequence: 1,
@@ -477,7 +540,7 @@ describe("Scout runtime", () => {
       id: sessionId,
       revision: 0,
       utterances: [],
-      participants: [{ id: "person-1", name: "Alex" }],
+      participants: [{ id: "person-1", name: "Alex", role: "unknown" }],
       recall: { status: "waiting", botId: "bot-test" },
       codex: { status: "idle" },
       processing: {

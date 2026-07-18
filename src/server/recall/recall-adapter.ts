@@ -140,6 +140,27 @@ const participantId = (participant: Record<string, unknown>): string => {
   return asString(participant.name) ?? "unknown";
 };
 
+const participantPlatformIdentity = (
+  participant: Record<string, unknown>
+): string | undefined => {
+  const email = asString(participant.email)?.trim().toLowerCase();
+  if (email) return `email:${email}`;
+
+  const extraData = asRecord(participant.extra_data);
+  const candidates: Array<[string, string | undefined]> = [
+    ["zoom", asString(asRecord(extraData?.zoom)?.conf_user_id)],
+    [
+      "microsoft_teams",
+      asString(asRecord(extraData?.microsoft_teams)?.user_id)
+    ],
+    ["teams", asString(asRecord(extraData?.teams)?.user_id)],
+    ["slack", asString(asRecord(extraData?.slack)?.user_id)],
+    ["webex", asString(asRecord(extraData?.webex)?.webex_id)]
+  ];
+  const match = candidates.find(([, value]) => value?.trim());
+  return match?.[1] ? `${match[0]}:${match[1]}` : undefined;
+};
+
 const normalizeWords = (
   wordsValue: unknown
 ): Array<{
@@ -245,8 +266,12 @@ const normalizeParticipant = (
       participant: {
         id: participantId(participant),
         name: asString(participant.name) ?? "Unknown participant",
+        role: "unknown",
         ...(asString(participant.platform)
           ? { platform: asString(participant.platform) }
+          : {}),
+        ...(participantPlatformIdentity(participant)
+          ? { platformIdentity: participantPlatformIdentity(participant) }
           : {}),
         ...(joinedAt !== undefined && Number.isFinite(joinedAt) ? { joinedAt } : {})
       }

@@ -31,10 +31,15 @@ export type GraphNodeKind = (typeof graphNodeKinds)[number];
 export type GraphState = (typeof graphStates)[number];
 export type GraphEdgeKind = (typeof graphEdgeKinds)[number];
 
+export type ParticipantRole = "operator" | "client" | "unknown";
+
 export interface Participant {
   id: string;
   name: string;
+  role: ParticipantRole;
+  isBot?: boolean;
   platform?: string;
+  platformIdentity?: string;
   joinedAt?: number;
 }
 
@@ -131,6 +136,7 @@ export interface SessionSnapshot {
   updatedAt: number;
   revision: number;
   status: SessionStatus;
+  operatorParticipantId?: string;
   participants: Participant[];
   utterances: Utterance[];
   graph: BusinessGraph;

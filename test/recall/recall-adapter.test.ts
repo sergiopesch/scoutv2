@@ -193,8 +193,38 @@ describe("Recall event normalization", () => {
         participant: {
           id: "73",
           name: "Jamie Chen",
+          role: "unknown",
           platform: "zoom",
           joinedAt: Date.parse("2026-07-18T10:05:06.000Z")
+        }
+      }
+    ]);
+  });
+
+  it("retains a stable platform identity when Recall exposes one", () => {
+    expect(
+      client().normalizeEvent({
+        event: "participant_events.join",
+        data: {
+          data: {
+            participant: {
+              id: 74,
+              name: "Stephen",
+              platform: "zoom",
+              extra_data: {
+                zoom: { conf_user_id: "stable-user-1" }
+              }
+            }
+          }
+        }
+      })
+    ).toMatchObject([
+      {
+        type: "participant.joined",
+        participant: {
+          id: "74",
+          role: "unknown",
+          platformIdentity: "zoom:stable-user-1"
         }
       }
     ]);

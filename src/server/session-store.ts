@@ -34,6 +34,13 @@ export type SessionEvent =
   | {
       sequence: number;
       occurredAt: number;
+      type: "operator.selected";
+      participantId: string;
+      platformIdentity?: string;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
       type: "utterance.recorded";
       utterance: Utterance;
     }
@@ -95,6 +102,7 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     updatedAt: created.occurredAt,
     revision: 0,
     status: "creating",
+    operatorParticipantId: undefined,
     participants: [],
     utterances: [],
     graph: emptyBusinessGraph(),
@@ -108,6 +116,7 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     analysis: { status: "idle", pendingUtteranceCount: 0 }
   };
 
+  let selectedOperatorPlatformIdentity: string | undefined;
   for (const event of events.slice(1)) {
     snapshot.updatedAt = event.occurredAt;
     switch (event.type) {
@@ -119,9 +128,24 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
           (participant) => participant.id === event.participant.id
         );
         if (index === -1) snapshot.participants.push(event.participant);
-        else snapshot.participants[index] = event.participant;
+        else {
+          snapshot.participants[index] = {
+            ...snapshot.participants[index],
+            ...event.participant
+          };
+        }
+        if (
+          selectedOperatorPlatformIdentity &&
+          event.participant.platformIdentity === selectedOperatorPlatformIdentity
+        ) {
+          snapshot.operatorParticipantId = event.participant.id;
+        }
         break;
       }
+      case "operator.selected":
+        snapshot.operatorParticipantId = event.participantId;
+        selectedOperatorPlatformIdentity = event.platformIdentity;
+        break;
       case "utterance.recorded": {
         if (event.utterance.finalized) {
           snapshot.utterances = snapshot.utterances.filter(
@@ -193,6 +217,19 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
     }
   }
 
+  snapshot.participants = snapshot.participants.map((participant) => ({
+    ...participant,
+    role: participant.isBot
+      ? "unknown"
+      : snapshot.operatorParticipantId === undefined
+        ? "unknown"
+        : participant.id === snapshot.operatorParticipantId ||
+            (selectedOperatorPlatformIdentity !== undefined &&
+              participant.platformIdentity === selectedOperatorPlatformIdentity)
+          ? "operator"
+          : "client"
+  }));
+
   return snapshot;
 };
 
@@ -245,6 +282,23 @@ export class SessionStore {
 
   upsertParticipant(id: string, participant: Participant): SessionSnapshot {
     return this.append(id, { type: "participant.upserted", participant });
+  }
+
+  selectOperator(id: string, participantId: string): SessionSnapshot {
+    const participant = this.getRequired(id).participants.find(
+      (candidate) => candidate.id === participantId
+    );
+    if (!participant) {
+      throw new Error(`Unknown participant: ${participantId}`);
+    }
+    if (participant.isBot) {
+      throw new Error("The Scout meeting bot cannot be selected as operator.");
+    }
+    return this.append(id, {
+      type: "operator.selected",
+      participantId,
+      platformIdentity: participant.platformIdentity
+    });
   }
 
   appendUtterance(id: string, utterance: Utterance): SessionSnapshot {
@@ -310,6 +364,18 @@ export class SessionStore {
         })
       )
     ];
+    if (current.operatorParticipantId) {
+      const operator = current.participants.find(
+        (participant) => participant.id === current.operatorParticipantId
+      );
+      retainedEvents.push({
+        sequence: retainedEvents.length,
+        occurredAt,
+        type: "operator.selected",
+        participantId: current.operatorParticipantId,
+        platformIdentity: operator?.platformIdentity
+      });
+    }
     retainedEvents.push({
       sequence: retainedEvents.length,
       occurredAt,

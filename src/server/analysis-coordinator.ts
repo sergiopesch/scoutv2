@@ -55,10 +55,22 @@ export class AnalysisCoordinator {
     }
 
     const snapshot = this.store.getRequired(sessionId);
-    const newUtterances = snapshot.utterances.filter(
-      (utterance) =>
-        utterance.finalized && !state.processedUtteranceIds.has(utterance.id)
+    const rolesByParticipantId = new Map(
+      snapshot.participants.map((participant) => [
+        participant.id,
+        participant.role
+      ])
     );
+    const newUtterances = snapshot.utterances
+      .filter(
+        (utterance) =>
+          utterance.finalized && !state.processedUtteranceIds.has(utterance.id)
+      )
+      .map((utterance) => ({
+        ...utterance,
+        participantRole:
+          rolesByParticipantId.get(utterance.participantId) ?? "unknown"
+      }));
     if (newUtterances.length === 0) return;
 
     state.running = true;

@@ -10,12 +10,17 @@ import {
 } from "./transcript-view.js";
 import { processingControlView } from "./processing-control.js";
 import { resetSession } from "./reset-session-api.js";
+import {
+  operatorIdentityView,
+  selectOperator
+} from "./operator-identity.js";
 
 const elements = {
   topic: document.querySelector("#meeting-heading"),
   integrations: document.querySelector("#integrations"),
   participants: document.querySelector("#participants"),
   participantCount: document.querySelector("#participant-count"),
+  identityStatus: document.querySelector("#identity-status"),
   transcript: document.querySelector("#transcript"),
   newTranscript: document.querySelector("#new-transcript"),
   streamDot: document.querySelector("#stream-dot"),
@@ -47,6 +52,7 @@ let processingSubmitting = false;
 let processingRequestedPaused;
 let streamConnectionState = "connecting";
 let resetting = false;
+let operatorSelectingId;
 let renderedTranscriptSignature = "";
 
 function text(value, fallback = "—") {
@@ -111,18 +117,42 @@ function renderStreamState() {
         : "Connecting";
 }
 
-function renderParticipants(participants = []) {
+function renderParticipants(next) {
+  const participants = operatorIdentityView(
+    next.participants,
+    next.operatorParticipantId,
+    operatorSelectingId
+  );
   elements.participantCount.textContent = `${participants.length} present`;
+  elements.identityStatus.textContent = next.operatorParticipantId
+    ? "Operator selected. Everyone else is treated as a client."
+    : participants.length
+      ? "Choose your meeting identity."
+      : "Waiting for people to join.";
   const rows = participants.map((participant) => {
     const row = document.createElement("li");
     row.className = "participant-row";
+    row.dataset.role = participant.selected ? "operator" : participant.role;
     const avatar = document.createElement("span");
     avatar.className = "participant-avatar";
     avatar.textContent = initials(participant.name);
+    const copy = document.createElement("div");
+    copy.className = "participant-copy";
     const name = document.createElement("span");
     name.className = "participant-name";
     name.textContent = text(participant.name, "Unknown participant");
-    row.append(avatar, name);
+    const role = document.createElement("span");
+    role.className = "participant-role";
+    role.textContent = participant.roleLabel;
+    copy.append(name, role);
+    const button = document.createElement("button");
+    button.className = "identity-button";
+    button.type = "button";
+    button.textContent = participant.buttonText;
+    button.disabled = participant.disabled;
+    button.setAttribute("aria-pressed", String(participant.selected));
+    button.addEventListener("click", () => chooseOperator(participant.id));
+    row.append(avatar, copy, button);
     return row;
   });
   if (!rows.length) {
@@ -219,7 +249,7 @@ function render(next) {
   renderStreamState();
   elements.topic.textContent = text(next.graph?.topic?.label, "Business discovery");
   renderIntegrations(next);
-  renderParticipants(next.participants);
+  renderParticipants(next);
   renderTranscript(next.utterances);
   elements.revision.textContent = `r${next.revision ?? 0}`;
   elements.pendingCount.textContent = String(
@@ -268,6 +298,21 @@ function render(next) {
     : processingView.paused
       ? "Continue live processing before starting another analysis."
       : "Sends finalized utterances not yet included in the accepted graph.";
+}
+
+async function chooseOperator(participantId) {
+  if (!sessionId || operatorSelectingId) return;
+  operatorSelectingId = participantId;
+  elements.error.hidden = true;
+  if (snapshot) render(snapshot);
+  try {
+    render(await selectOperator(sessionId, participantId));
+  } catch (error) {
+    showError(error);
+  } finally {
+    operatorSelectingId = undefined;
+    if (snapshot) render(snapshot);
+  }
 }
 
 function showError(error) {

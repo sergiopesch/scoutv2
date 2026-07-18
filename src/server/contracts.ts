@@ -1,15 +1,20 @@
 import type {
   BusinessGraph,
   Participant,
+  ParticipantRole,
   Utterance
 } from "../shared/types.js";
+
+export interface AnalysisUtterance extends Utterance {
+  participantRole: ParticipantRole;
+}
 
 export interface AnalyzeMeetingInput {
   sessionId: string;
   threadId?: string;
   currentGraph: BusinessGraph;
   participants: Participant[];
-  newUtterances: Utterance[];
+  newUtterances: AnalysisUtterance[];
 }
 
 export interface AnalyzeMeetingResult {
