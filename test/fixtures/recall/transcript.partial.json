@@ -1,0 +1,38 @@
+{
+  "event": "transcript.partial_data",
+  "data": {
+    "data": {
+      "words": [
+        {
+          "text": "Sales exp",
+          "start_timestamp": { "relative": 12.25 },
+          "end_timestamp": null
+        }
+      ],
+      "participant": {
+        "id": 42,
+        "name": "Alex Morgan",
+        "is_host": true,
+        "platform": "zoom",
+        "extra_data": {},
+        "email": null
+      }
+    },
+    "realtime_endpoint": {
+      "id": "rt-endpoint-demo",
+      "metadata": {}
+    },
+    "transcript": {
+      "id": "transcript-demo",
+      "metadata": {}
+    },
+    "recording": {
+      "id": "recording-demo",
+      "metadata": {}
+    },
+    "bot": {
+      "id": "bot-demo",
+      "metadata": {}
+    }
+  }
+}

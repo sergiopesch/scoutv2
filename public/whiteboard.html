@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scout Whiteboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="whiteboard-shell">
+      <header class="whiteboard-header">
+        <div>
+          <p class="eyebrow">Scout · live business map</p>
+          <h1 class="whiteboard-topic" id="topic">Listening for the shape of the business…</h1>
+        </div>
+        <div class="whiteboard-status">
+          <span class="status-dot" id="whiteboard-status-dot"></span>
+          <span id="whiteboard-status-label">Connecting</span>
+        </div>
+      </header>
+
+      <section class="graph-stage" aria-label="Live business graph">
+        <div class="graph-frame" id="graph-frame">
+          <div class="graph-placeholder">
+            <h2>Listening and mapping…</h2>
+            <p>The workflow will appear as the meeting reveals people, systems, handoffs and pain points.</p>
+          </div>
+        </div>
+        <div class="render-alert" id="render-alert" role="alert" hidden></div>
+      </section>
+
+      <footer class="whiteboard-footer">
+        <div class="follow-up" id="follow-up" hidden>
+          <p class="eyebrow">Question worth asking next</p>
+          <p id="follow-up-text"></p>
+        </div>
+        <div class="legend" aria-label="Graph legend">
+          <span>Current</span>
+          <span class="desired">Desired</span>
+          <span class="hypothesis">Hypothesis</span>
+          <span class="unknown">Unknown</span>
+          <span class="pain">Pain</span>
+        </div>
+      </footer>
+    </main>
+    <script type="module" src="/js/whiteboard.js"></script>
+  </body>
+</html>

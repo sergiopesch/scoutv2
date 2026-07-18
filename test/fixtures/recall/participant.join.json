@@ -1,0 +1,36 @@
+{
+  "event": "participant_events.join",
+  "data": {
+    "data": {
+      "participant": {
+        "id": 73,
+        "name": "Jamie Chen",
+        "is_host": false,
+        "platform": "zoom",
+        "extra_data": {},
+        "email": null
+      },
+      "timestamp": {
+        "absolute": "2026-07-18T10:05:06.000Z",
+        "relative": 3.2
+      },
+      "data": null
+    },
+    "realtime_endpoint": {
+      "id": "rt-endpoint-demo",
+      "metadata": {}
+    },
+    "participant_events": {
+      "id": "participant-events-demo",
+      "metadata": {}
+    },
+    "recording": {
+      "id": "recording-demo",
+      "metadata": {}
+    },
+    "bot": {
+      "id": "bot-demo",
+      "metadata": {}
+    }
+  }
+}

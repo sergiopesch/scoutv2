@@ -70,7 +70,9 @@ When I interview a stakeholder about a messy business problem, help me turn thei
 - Camera output is the fallback if screenshare permission fails
 - Recall separate-stream diarization is enabled when available
 - The application, not Codex, owns the canonical business graph
-- Codex returns structured graph patches grounded in transcript evidence
+- Codex returns a complete graph snapshot grounded in transcript evidence
+- Transcript input is chunked while graph output is replaced in full
+- The server assigns graph revisions after validation
 
 ## 6. Product principles
 
@@ -126,7 +128,7 @@ flowchart LR
     Meeting["Zoom / Meet / Teams"] --> Recall["Recall bot"]
     Recall -->|Attributed transcript events| Server["Local Node server"]
     Server -->|Buffered utterances| Codex["Codex app-server"]
-    Codex -->|BusinessGraphPatch| Server
+    Codex -->|BusinessGraph snapshot| Server
     Server --> State["Canonical session state"]
     State --> Operator["/operator/:sessionId"]
     State --> Whiteboard["/whiteboard/:sessionId"]
@@ -293,7 +295,7 @@ Codex acts as a discovery analyst and business architect. It must:
 - Attach pain points to the relevant graph element.
 - Detect missing steps and contradictions.
 - Distinguish stated evidence from inference.
-- Propose only incremental graph operations.
+- Return one complete replacement graph for each analysis cycle.
 - Suggest one high-value follow-up question.
 - Avoid inventing a future-state workflow without marking it as a hypothesis.
 
@@ -383,32 +385,32 @@ type GraphEdge = {
 };
 ```
 
-### 12.4 Graph patch
+### 12.4 Graph snapshot
 
 Codex returns:
 
 ```ts
-type BusinessGraphPatch = {
+type BusinessGraphSnapshot = {
   topic: {
     id: string;
     label: string;
   };
-  operations: Array<
-    | { op: "upsert_node"; node: GraphNode }
-    | { op: "upsert_edge"; edge: GraphEdge }
-    | { op: "upsert_pain"; pain: PainPoint }
-    | { op: "remove_node"; nodeId: string; reason: string }
-    | { op: "remove_edge"; edgeId: string; reason: string }
-  >;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  pains: PainPoint[];
   suggestedQuestion?: SuggestedQuestion;
   contradictions: Array<{
+    id: string;
     description: string;
     evidenceUtteranceIds: string[];
   }>;
 };
 ```
 
-Stable IDs are mandatory. The server validates every operation before applying it.
+Stable IDs are mandatory. The server validates the entire snapshot, verifies
+that evidence and edge references exist, assigns the next revision, then
+atomically replaces canonical graph state. If validation or Mermaid rendering
+fails, the application retains the last valid graph.
 
 ## 13. Topic handling
 
@@ -600,7 +602,7 @@ These are demonstration targets, not production SLAs:
 - Create one thread.
 - Buffer utterances.
 - Start one analysis turn.
-- Parse and validate one graph patch.
+- Validate and accept one complete graph snapshot.
 
 ### 115–155 minutes: diagram and operator
 
