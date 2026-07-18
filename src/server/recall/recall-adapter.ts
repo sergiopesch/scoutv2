@@ -273,6 +273,8 @@ const normalizeBotStatus = (
   const envelope = asRecord(payload.data);
   const legacyStatus = asRecord(envelope?.status);
   const currentStatus = asRecord(envelope?.data);
+  const botId =
+    asString(envelope?.bot_id) ?? asString(asRecord(envelope?.bot)?.id);
   const providerStatus =
     asString(legacyStatus?.code) ??
     asString(currentStatus?.code) ??
@@ -290,6 +292,7 @@ const normalizeBotStatus = (
   return [
     {
       type: "bot.status",
+      ...(botId ? { botId } : {}),
       status: mapBotStatus(providerStatus),
       ...(detail ? { detail } : {})
     }

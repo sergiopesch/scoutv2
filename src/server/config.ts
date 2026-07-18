@@ -9,11 +9,23 @@ export interface AppConfig {
     reasoningEffort: "low" | "medium" | "high";
   };
   recall?: {
+    region: RecallRegion;
     apiKey: string;
     apiBaseUrl: string;
-    webhookSecret?: string;
+    workspaceVerificationSecret: string;
+    statusWebhookSecret: string;
+    outputMode: "screenshare" | "camera";
   };
 }
+
+export const recallRegions = [
+  "us-west-2",
+  "us-east-1",
+  "eu-central-1",
+  "ap-northeast-1"
+] as const;
+
+export type RecallRegion = (typeof recallRegions)[number];
 
 const parseInteger = (
   value: string | undefined,
@@ -38,8 +50,30 @@ export const loadConfig = (
     throw new Error("CODEX_REASONING_EFFORT must be low, medium, or high.");
   }
 
-  const publicBaseUrl = environment.PUBLIC_BASE_URL?.trim();
+  const publicBaseUrl = (
+    environment.PUBLIC_API_BASE_URL ?? environment.PUBLIC_BASE_URL
+  )?.trim();
   const recallApiKey = environment.RECALL_API_KEY?.trim();
+  const recallRegion = environment.RECALL_REGION?.trim() || "us-west-2";
+  if (!recallRegions.includes(recallRegion as RecallRegion)) {
+    throw new Error(
+      `RECALL_REGION must be one of: ${recallRegions.join(", ")}.`
+    );
+  }
+  const workspaceVerificationSecret = (
+    environment.RECALL_WORKSPACE_VERIFICATION_SECRET ??
+    environment.RECALL_WEBHOOK_SECRET
+  )?.trim();
+  const outputMode = environment.RECALL_OUTPUT_MODE?.trim() || "screenshare";
+  if (!["screenshare", "camera"].includes(outputMode)) {
+    throw new Error("RECALL_OUTPUT_MODE must be screenshare or camera.");
+  }
+
+  if (recallApiKey && !workspaceVerificationSecret) {
+    throw new Error(
+      "RECALL_WORKSPACE_VERIFICATION_SECRET is required when RECALL_API_KEY is set."
+    );
+  }
 
   return {
     port: parseInteger(environment.PORT, 3000, "PORT"),
@@ -59,12 +93,17 @@ export const loadConfig = (
     },
     recall: recallApiKey
       ? {
+          region: recallRegion as RecallRegion,
           apiKey: recallApiKey,
           apiBaseUrl: stripTrailingSlash(
             environment.RECALL_API_BASE_URL?.trim() ||
-              "https://us-west-2.recall.ai"
+              `https://${recallRegion}.recall.ai/api/v1`
           ),
-          webhookSecret: environment.RECALL_WEBHOOK_SECRET?.trim() || undefined
+          workspaceVerificationSecret: workspaceVerificationSecret!,
+          statusWebhookSecret:
+            environment.RECALL_SVIX_WEBHOOK_SECRET?.trim() ||
+            workspaceVerificationSecret!,
+          outputMode: outputMode as "screenshare" | "camera"
         }
       : undefined
   };

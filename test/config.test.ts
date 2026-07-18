@@ -12,18 +12,28 @@ describe("loadConfig", () => {
 
   it("normalizes public and Recall base URLs", () => {
     const config = loadConfig({
-      PUBLIC_BASE_URL: "https://scout.example/",
+      PUBLIC_API_BASE_URL: "https://scout.example/",
       RECALL_API_KEY: "test-key",
-      RECALL_API_BASE_URL: "https://eu-west-2.recall.ai/"
+      RECALL_REGION: "eu-central-1",
+      RECALL_WORKSPACE_VERIFICATION_SECRET: "whsec_test"
     });
 
     expect(config.publicBaseUrl).toBe("https://scout.example");
-    expect(config.recall?.apiBaseUrl).toBe("https://eu-west-2.recall.ai");
+    expect(config.recall?.apiBaseUrl).toBe(
+      "https://eu-central-1.recall.ai/api/v1"
+    );
+    expect(config.recall?.statusWebhookSecret).toBe("whsec_test");
   });
 
   it("rejects unsupported reasoning effort", () => {
     expect(() =>
       loadConfig({ CODEX_REASONING_EFFORT: "ultra" })
     ).toThrow(/low, medium, or high/);
+  });
+
+  it("requires the workspace verification secret with a Recall key", () => {
+    expect(() => loadConfig({ RECALL_API_KEY: "test-key" })).toThrow(
+      /WORKSPACE_VERIFICATION_SECRET/
+    );
   });
 });

@@ -39,6 +39,7 @@ export type NormalizedMeetingEvent =
   | { type: "transcript.final"; utterance: Utterance }
   | {
       type: "bot.status";
+      botId?: string;
       status: string;
       detail?: string;
     };

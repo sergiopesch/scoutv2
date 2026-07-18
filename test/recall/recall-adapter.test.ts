@@ -169,6 +169,7 @@ describe("Recall event normalization", () => {
     ).toEqual([
       {
         type: "bot.status",
+        botId: "bot-demo",
         status: "waiting_for_admission",
         detail: "Waiting for the host to admit the bot"
       }
@@ -186,7 +187,9 @@ describe("Recall event normalization", () => {
           bot: { id: "bot-demo", metadata: {} }
         }
       })
-    ).toEqual([{ type: "bot.status", status: "listening" }]);
+    ).toEqual([
+      { type: "bot.status", botId: "bot-demo", status: "listening" }
+    ]);
 
     expect(
       client().normalizeEvent({
@@ -203,6 +206,7 @@ describe("Recall event normalization", () => {
     ).toEqual([
       {
         type: "bot.status",
+        botId: "bot-demo",
         status: "error",
         detail: "meeting_not_found"
       }
