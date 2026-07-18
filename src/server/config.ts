@@ -3,6 +3,7 @@ export interface AppConfig {
   host: string;
   publicBaseUrl?: string;
   analysisDelayMs: number;
+  analysisRerunDelayMs: number;
   allowDevIngest: boolean;
   codex: {
     binary: string;
@@ -84,8 +85,13 @@ export const loadConfig = (
       : undefined,
     analysisDelayMs: parseInteger(
       environment.ANALYSIS_DELAY_MS,
-      12_000,
+      1_500,
       "ANALYSIS_DELAY_MS"
+    ),
+    analysisRerunDelayMs: parseInteger(
+      environment.ANALYSIS_RERUN_DELAY_MS,
+      500,
+      "ANALYSIS_RERUN_DELAY_MS"
     ),
     allowDevIngest: environment.SCOUT_ALLOW_DEV_INGEST === "true",
     codex: {
