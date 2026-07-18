@@ -162,6 +162,19 @@ const eventually = async (check: () => boolean): Promise<void> => {
 };
 
 describe("Scout runtime", () => {
+  it("serves application assets without browser caching", async () => {
+    const runtime = createScoutRuntime(baseConfig(), {
+      analyzer: new FakeAnalyzer()
+    });
+
+    const response = await request(runtime.app)
+      .get("/js/operator.js")
+      .expect(200);
+
+    expect(response.headers["cache-control"]).toBe("no-store");
+    await runtime.close();
+  });
+
   it("creates a usable local session while clearly reporting missing Recall configuration", async () => {
     const runtime = createScoutRuntime(baseConfig(), {
       analyzer: new FakeAnalyzer()
@@ -431,6 +444,42 @@ describe("Scout runtime", () => {
       .send({ paused: true })
       .expect(502);
     expect(runtime.store.getRequired(sessionId).processing.paused).toBe(false);
+    await runtime.close();
+  });
+
+  it("rejects live processing changes after the meeting ends without calling Recall", async () => {
+    const recall = new FakeRecall();
+    const config = baseConfig({
+      publicBaseUrl: "https://scout.example.invalid",
+      recall: {
+        region: "us-west-2",
+        apiKey: "test-key",
+        apiBaseUrl: "https://us-west-2.recall.ai/api/v1",
+        workspaceVerificationSecret: "whsec_workspace",
+        statusWebhookSecret: "whsec_status",
+        outputMode: "screenshare"
+      }
+    });
+    const runtime = createScoutRuntime(config, {
+      analyzer: new FakeAnalyzer(),
+      recall,
+      statusRecall: recall
+    });
+    const created = await request(runtime.app)
+      .post("/api/sessions")
+      .send({ meetingUrl: "https://zoom.example.invalid/j/123" })
+      .expect(201);
+    const sessionId = created.body.sessionId as string;
+    await eventually(() => Boolean(recall.createConfig));
+    runtime.store.setStatus(sessionId, "ended");
+
+    const response = await request(runtime.app)
+      .put(`/api/sessions/${sessionId}/processing`)
+      .send({ paused: true })
+      .expect(409);
+
+    expect(response.body.error).toContain("meeting has ended");
+    expect(recall.recordingActions).toEqual([]);
     await runtime.close();
   });
 

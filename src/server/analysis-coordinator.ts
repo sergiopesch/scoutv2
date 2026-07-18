@@ -11,9 +11,6 @@ interface SessionAnalysisState {
   generation: number;
 }
 
-const customerSelectionRequired =
-  "Select at least one prospective customer before analysis can start.";
-
 export class AnalysisCoordinator {
   private readonly sessions = new Map<string, SessionAnalysisState>();
 
@@ -80,7 +77,8 @@ export class AnalysisCoordinator {
     }
 
     const snapshot = this.store.getRequired(sessionId);
-    if (this.isTerminal(snapshot.status)) return;
+    const analyzingEndedSession = snapshot.status === "ended" && !automatic;
+    if (this.isTerminal(snapshot.status) && !analyzingEndedSession) return;
     const rolesByParticipantId = new Map(
       snapshot.participants.map((participant) => [
         participant.id,
@@ -113,7 +111,9 @@ export class AnalysisCoordinator {
     state.runAgain = false;
     if (automatic) state.automaticTurnsStarted += 1;
     const generation = state.generation;
-    this.store.setStatus(sessionId, "analyzing");
+    if (!analyzingEndedSession) {
+      this.store.setStatus(sessionId, "analyzing");
+    }
     this.store.setAnalysis(sessionId, {
       status: "running",
       pendingUtteranceCount: newUtterances.length,
@@ -334,7 +334,15 @@ export class AnalysisCoordinator {
     pendingUtteranceCount: number,
     state: SessionAnalysisState
   ): void {
-    const current = this.store.getRequired(sessionId).analysis;
+    const snapshot = this.store.getRequired(sessionId);
+    const current = snapshot.analysis;
+    const humans = snapshot.participants.filter((participant) => !participant.isBot);
+    const blockedReason =
+      humans.length === 0
+        ? "Waiting for participants to join before analysis can start."
+        : snapshot.operatorParticipantId === undefined
+          ? "Select yourself as operator before analysis can start."
+          : "Waiting for a client to join before analysis can start.";
     this.store.setAnalysis(sessionId, {
       ...current,
       status: "idle",
@@ -342,7 +350,7 @@ export class AnalysisCoordinator {
       automaticTurnsStarted: state.automaticTurnsStarted,
       automaticTurnBudget: this.automaticTurnBudget,
       throttled: false,
-      blockedReason: customerSelectionRequired,
+      blockedReason,
       lastError: undefined
     });
   }

@@ -158,6 +158,13 @@ export const createScoutRuntime = (
   const processingTransitions = new Map<string, Promise<void>>();
   const sessionEpochs = new Map<string, number>();
   const publicDir = publicDirectory();
+  const noStoreStatic = {
+    setHeaders(response: Response): void {
+      response.setHeader("Cache-Control", "no-store");
+    }
+  };
+  const processingUnavailableMessage =
+    "Live processing is unavailable after the meeting has ended.";
 
   const setListeningUnlessTerminal = (sessionId: string): void => {
     const status = store.getRequired(sessionId).status;
@@ -262,6 +269,9 @@ export const createScoutRuntime = (
   ): Promise<void> =>
     enqueueProcessingOperation(sessionId, async () => {
       const current = store.getRequired(sessionId);
+      if (current.status === "ended" || current.status === "error") {
+        throw new Error(processingUnavailableMessage);
+      }
       if (current.processing.paused === paused) return;
 
       if (recall && current.recall.botId) {
@@ -353,9 +363,12 @@ export const createScoutRuntime = (
   app.use(express.json({ limit: "1mb" }));
   app.use(
     "/vendor/mermaid",
-    express.static(path.resolve(process.cwd(), "node_modules/mermaid/dist"))
+    express.static(
+      path.resolve(process.cwd(), "node_modules/mermaid/dist"),
+      noStoreStatic
+    )
   );
-  app.use(express.static(publicDir));
+  app.use(express.static(publicDir, noStoreStatic));
 
   app.get("/health", (_request, response) => {
     response.json({
@@ -501,8 +514,13 @@ export const createScoutRuntime = (
 
   app.put("/api/sessions/:sessionId/processing", async (request, response) => {
     const sessionId = request.params.sessionId;
-    if (!store.get(sessionId)) {
+    const snapshot = store.get(sessionId);
+    if (!snapshot) {
       response.status(404).json({ error: "session not found" });
+      return;
+    }
+    if (snapshot.status === "ended" || snapshot.status === "error") {
+      response.status(409).json({ error: processingUnavailableMessage });
       return;
     }
     const parsed = ProcessingStateSchema.safeParse(request.body);
@@ -516,7 +534,9 @@ export const createScoutRuntime = (
       response.json(store.getRequired(sessionId));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      response.status(502).json({ error: message });
+      response
+        .status(message === processingUnavailableMessage ? 409 : 502)
+        .json({ error: message });
     }
   });
 
