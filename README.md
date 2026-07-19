@@ -34,6 +34,27 @@ semantic projections, Mermaid renderer, layout fallbacks, and geometry gates.
 Recall and Codex are replaced only at their external boundaries by deterministic
 test adapters; no browser graph or SVG is injected.
 
+### Full end-to-end demo
+
+<p align="center">
+  <a href="docs/assets/scout-v2-end-to-end-60s.webm">
+    <img
+      src="docs/assets/scout-v2-end-to-end-60s-poster.png"
+      width="960"
+      alt="Play the 60-second Scout end-to-end demo"
+    />
+  </a>
+</p>
+
+**[Play the 60-second Scout demo →](docs/assets/scout-v2-end-to-end-60s.webm)**
+
+The recording follows one synthetic meeting from word-by-word live transcript
+through Process, Organisation, and Architecture revisions, then into post-call
+editing, human approval, and the final Codex handoff package. It uses the real
+Scout server, SSE transport, projections, renderers, review API, validation, and
+package writer with deterministic adapters only at the external Recall and
+Codex boundaries.
+
 ## The one-minute deck
 
 **[Open the Scout market vision presentation →](Presentation/index.html)**
