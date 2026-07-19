@@ -91,6 +91,13 @@ export type SessionEvent =
   | {
       sequence: number;
       occurredAt: number;
+      type: "post-call.edited";
+      graph: BusinessGraph;
+      notes: string;
+    }
+  | {
+      sequence: number;
+      occurredAt: number;
       type: "session.context-reset";
       roleRevision: number;
     };
@@ -119,6 +126,7 @@ const newProjection = (
   participants: [],
   utterances: [],
   graph: emptyBusinessGraph(),
+  postCall: { revision: 0, notes: "" },
   recall: { status: "idle" },
   codex: { status: "idle" },
   processing: {
@@ -164,6 +172,7 @@ const invalidateAnalysisForRoleChange = (snapshot: SessionSnapshot): void => {
       (utterance) => utterance.finalized
     ).length
   };
+  snapshot.postCall = { revision: 0, notes: "" };
   if (snapshot.status === "analyzing") snapshot.status = "listening";
 };
 
@@ -176,6 +185,9 @@ const applySessionEvent = (
   switch (event.type) {
     case "session.status-set":
       snapshot.status = event.status;
+      if (event.status === "ended" && snapshot.endedAt === undefined) {
+        snapshot.endedAt = event.occurredAt;
+      }
       break;
     case "participant.upserted": {
       const index = snapshot.participants.findIndex(
@@ -288,6 +300,8 @@ const applySessionEvent = (
     case "graph.accepted":
       snapshot.graph = event.graph;
       snapshot.revision += 1;
+      delete snapshot.postCall.approvedAt;
+      delete snapshot.postCall.approvedGraphRevision;
       snapshot.analysis = {
         ...snapshot.analysis,
         status: "idle",
@@ -295,6 +309,17 @@ const applySessionEvent = (
         lastCompletedAt: event.occurredAt,
         lastError: undefined,
         blockedReason: undefined
+      };
+      break;
+    case "post-call.edited":
+      snapshot.graph = event.graph;
+      snapshot.revision += 1;
+      snapshot.postCall = {
+        revision: snapshot.postCall.revision + 1,
+        notes: event.notes,
+        lastEditedAt: event.occurredAt,
+        approvedAt: event.occurredAt,
+        approvedGraphRevision: snapshot.revision
       };
       break;
     case "session.context-reset":
@@ -307,6 +332,7 @@ const applySessionEvent = (
       );
       snapshot.utterances = [];
       snapshot.graph = emptyBusinessGraph();
+      snapshot.postCall = { revision: 0, notes: "" };
       snapshot.revision = 0;
       snapshot.codex = { status: "idle" };
       snapshot.analysis = { status: "idle", pendingUtteranceCount: 0 };
@@ -330,6 +356,18 @@ const projectSession = (events: SessionEvent[]): SessionSnapshot => {
   }
   return snapshot;
 };
+
+export class SessionRevisionConflictError extends Error {
+  constructor(
+    readonly expectedRevision: number,
+    readonly currentRevision: number
+  ) {
+    super(
+      `Expected graph revision ${expectedRevision}, but revision ${currentRevision} is current.`
+    );
+    this.name = "SessionRevisionConflictError";
+  }
+}
 
 export class SessionStore {
   private readonly eventLogs = new Map<string, SessionEvent[]>();
@@ -474,6 +512,29 @@ export class SessionStore {
 
   acceptGraph(id: string, graph: BusinessGraph): SessionSnapshot {
     return this.append(id, { type: "graph.accepted", graph });
+  }
+
+  editPostCall(
+    id: string,
+    expectedRevision: number,
+    graph: BusinessGraph,
+    notes: string
+  ): SessionSnapshot {
+    const current = this.getRequired(id);
+    if (current.status !== "ended") {
+      throw new Error("Post-call editing is available only after the meeting ends.");
+    }
+    if (
+      current.analysis.status === "running" ||
+      current.analysis.status === "queued" ||
+      current.analysis.pendingUtteranceCount > 0
+    ) {
+      throw new Error("Finish the final analysis before editing the accepted map.");
+    }
+    if (current.revision !== expectedRevision) {
+      throw new SessionRevisionConflictError(expectedRevision, current.revision);
+    }
+    return this.append(id, { type: "post-call.edited", graph, notes });
   }
 
   resetContext(id: string): SessionSnapshot {

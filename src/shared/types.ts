@@ -234,6 +234,7 @@ export interface GraphNode {
   scope?: GraphScope;
   certainty?: GraphCertainty;
   confidence: number;
+  provenance?: "meeting" | "post_call_editorial";
   facets?: GraphNodeFacets;
   evidenceUtteranceIds: string[];
 }
@@ -248,6 +249,7 @@ export interface GraphEdge {
   scope?: GraphScope;
   certainty?: GraphCertainty;
   confidence: number;
+  provenance?: "meeting" | "post_call_editorial";
   facets?: GraphEdgeFacets;
   evidenceUtteranceIds: string[];
 }
@@ -281,6 +283,14 @@ export interface BusinessGraph {
   pains: PainPoint[];
   contradictions: Contradiction[];
   suggestedQuestion?: SuggestedQuestion;
+}
+
+export interface PostCallReviewState {
+  revision: number;
+  notes: string;
+  lastEditedAt?: number;
+  approvedAt?: number;
+  approvedGraphRevision?: number;
 }
 
 export interface WhiteboardGraphNode {
@@ -350,6 +360,7 @@ export interface SessionSnapshot {
   meetingUrl: string;
   createdAt: number;
   updatedAt: number;
+  endedAt?: number;
   revision: number;
   roleRevision: number;
   status: SessionStatus;
@@ -357,6 +368,7 @@ export interface SessionSnapshot {
   participants: Participant[];
   utterances: Utterance[];
   graph: BusinessGraph;
+  postCall: PostCallReviewState;
   recall: IntegrationState & { botId?: string };
   codex: IntegrationState & {
     threadId?: string;

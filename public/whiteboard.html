@@ -28,6 +28,20 @@
         </div>
       </header>
 
+      <section class="review-toolbar" id="review-toolbar" aria-label="Post-call editing controls" hidden>
+        <div class="review-mode-copy">
+          <p class="eyebrow">Review &amp; edit mode</p>
+          <p id="review-state" role="status" aria-live="polite">Loading the accepted map…</p>
+        </div>
+        <div class="review-actions">
+          <button type="button" id="review-undo" aria-label="Undo last edit" disabled>Undo</button>
+          <button type="button" id="review-redo" aria-label="Redo last edit" disabled>Redo</button>
+          <button type="button" id="review-add">Add element</button>
+          <button type="button" id="review-save" class="review-save" disabled>Save review</button>
+          <a id="review-handoff" class="review-handoff" target="_blank" rel="noopener">Let Codex do its thing <span aria-hidden="true">→</span></a>
+        </div>
+      </section>
+
       <section class="view-command-bar" aria-label="Diagram controls">
         <div class="diagram-tabs" role="tablist" aria-label="Business map views">
           <button class="diagram-tab" id="tab-process" role="tab" type="button" aria-selected="true" aria-controls="panel-process" data-view="process">
@@ -112,11 +126,70 @@
           <div class="inspector-selection" id="inspector-selection">
             <p>Select an element to see its state, relationships and friction.</p>
           </div>
+          <form class="element-editor" id="element-editor" hidden>
+            <p class="editor-kicker" id="editor-kicker">Editing element</p>
+            <label>
+              <span>Label</span>
+              <input id="editor-label" name="label" maxlength="100" required />
+            </label>
+            <label>
+              <span>Short label</span>
+              <input id="editor-short-label" name="shortLabel" maxlength="48" />
+            </label>
+            <label>
+              <span>Shape / semantic type</span>
+              <select id="editor-kind" name="kind"></select>
+            </label>
+            <div class="editor-field-pair">
+              <label>
+                <span>Scope</span>
+                <select id="editor-scope" name="scope">
+                  <option value="current">Current</option>
+                  <option value="desired">Target</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+              <label>
+                <span>Certainty</span>
+                <select id="editor-certainty" name="certainty">
+                  <option value="asserted">Asserted</option>
+                  <option value="hypothesis">Hypothesis</option>
+                  <option value="unknown">Unknown</option>
+                  <option value="conflicted">Conflicted</option>
+                </select>
+              </label>
+            </div>
+            <div class="editor-connections">
+              <div class="section-heading">
+                <span>Connections</span>
+                <span id="editor-connection-count">0</span>
+              </div>
+              <div id="editor-connection-list"></div>
+              <label>
+                <span>Connect to</span>
+                <select id="editor-connection-target"></select>
+              </label>
+              <button type="button" id="editor-add-connection">Add connection</button>
+            </div>
+            <p class="editor-delete-confirmation" id="editor-delete-confirmation" aria-live="polite" hidden></p>
+            <button type="button" class="editor-delete" id="editor-delete" aria-describedby="editor-delete-confirmation">Delete element</button>
+          </form>
           <div class="view-outline" id="view-outline" aria-label="Accessible diagram outline"></div>
         </aside>
       </section>
 
       <footer class="whiteboard-footer">
+        <section class="review-notes" id="review-notes" hidden>
+          <div>
+            <p class="eyebrow">Human-curated context</p>
+            <label for="review-topic">Map title</label>
+            <input id="review-topic" maxlength="100" />
+          </div>
+          <label class="review-notes-field" for="review-notes-text">
+            <span>Post-call notes and corrections</span>
+            <textarea id="review-notes-text" maxlength="50000" rows="4" placeholder="Add decisions, corrections, constraints and Scout follow-ups. The original transcript remains immutable."></textarea>
+          </label>
+        </section>
         <div class="follow-up" id="follow-up" hidden>
           <p class="eyebrow">Question worth asking next</p>
           <p id="follow-up-text"></p>

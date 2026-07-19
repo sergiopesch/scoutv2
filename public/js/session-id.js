@@ -1,4 +1,4 @@
-const SESSION_ROUTES = new Set(["operator", "whiteboard"]);
+const SESSION_ROUTES = new Set(["operator", "whiteboard", "review", "handoff"]);
 
 export function parseSessionId(pathname = globalThis.location?.pathname ?? "") {
   const parts = pathname.split("/").filter(Boolean);

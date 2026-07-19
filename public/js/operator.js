@@ -50,6 +50,10 @@ const elements = {
   resetError: document.querySelector("#reset-error"),
   resetStatus: document.querySelector("#reset-status"),
   actionNote: document.querySelector("#action-note"),
+  postCallActions: document.querySelector("#post-call-actions"),
+  postCallNote: document.querySelector("#post-call-note"),
+  postCallReview: document.querySelector("#post-call-review"),
+  postCallHandoff: document.querySelector("#post-call-handoff"),
   error: document.querySelector("#operator-error")
 };
 
@@ -98,6 +102,22 @@ function integrationRow(name, integration) {
 
 function renderIntegrations(next) {
   const terminal = isTerminalStatus(next.status);
+  const postCallReviewReady =
+    next.status === "ended" &&
+    next.analysis?.status !== "running" &&
+    next.analysis?.status !== "queued" &&
+    Number(next.analysis?.pendingUtteranceCount ?? 0) === 0;
+  const postCallReady = postCallReviewReady && Boolean(next.postCall?.approvedAt);
+  elements.postCallActions.hidden = next.status !== "ended";
+  elements.postCallReview.href = `/review/${encodeURIComponent(sessionId)}`;
+  elements.postCallHandoff.href = `/handoff/${encodeURIComponent(sessionId)}`;
+  elements.postCallHandoff.setAttribute("aria-disabled", String(!postCallReady));
+  elements.postCallHandoff.tabIndex = postCallReady ? 0 : -1;
+  elements.postCallNote.textContent = postCallReady
+    ? "The diagrams are approved. You can edit them again or open the complete Codex delivery package."
+    : postCallReviewReady
+      ? "Review and approve the accepted diagrams and notes before the Codex delivery package opens."
+      : "Scout is finishing the last accepted map before editing and handoff become available.";
   elements.integrations.replaceChildren(
     integrationRow("Recall", next.recall),
     integrationRow("Codex", next.codex),
@@ -189,6 +209,7 @@ function updateParticipantRow(row, participant) {
   button.textContent = participant.buttonText;
   button.disabled =
     participant.disabled ||
+    snapshot?.status === "ended" ||
     snapshot?.status === "error" ||
     streamConnectionState === "reconnecting";
   button.setAttribute("aria-pressed", String(participant.selected));
@@ -516,6 +537,11 @@ async function start() {
   elements.processingButton.addEventListener("click", toggleProcessing);
   elements.resetButton.addEventListener("click", openResetDialog);
   elements.resetConfirm.addEventListener("click", clearConversation);
+  elements.postCallHandoff.addEventListener("click", (event) => {
+    if (elements.postCallHandoff.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+    }
+  });
   elements.newTranscript.addEventListener("click", () => {
     elements.transcript.scrollTop = elements.transcript.scrollHeight;
     elements.newTranscript.hidden = true;

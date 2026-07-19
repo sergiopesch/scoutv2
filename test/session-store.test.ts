@@ -47,6 +47,50 @@ describe("SessionStore", () => {
     expect(updated.analysis.status).toBe("idle");
   });
 
+  it("accepts post-call edits as complete revision-checked graph snapshots", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-post-call");
+    store.setStatus(session.id, "ended");
+    const graph = {
+      ...session.graph,
+      topic: {
+        id: "orders",
+        label: "Reviewed orders",
+        evidenceUtteranceIds: ["utt-1"]
+      }
+    };
+
+    const edited = store.editPostCall(session.id, 0, graph, "Approved by the delivery team.");
+    expect(edited).toMatchObject({
+      revision: 1,
+      graph: { topic: { label: "Reviewed orders" } },
+      postCall: { revision: 1, notes: "Approved by the delivery team." }
+    });
+    expect(() => store.editPostCall(session.id, 0, graph, "stale"))
+      .toThrow("Expected graph revision 0, but revision 1 is current");
+    expect(store.rebuild(session.id)).toEqual(edited);
+  });
+
+  it("blocks editing before the meeting ends or while final evidence is pending", () => {
+    const store = new SessionStore();
+    const session = store.create("https://zoom.example/test", "session-post-call-gates");
+    expect(() => store.editPostCall(session.id, 0, session.graph, ""))
+      .toThrow("only after the meeting ends");
+    store.appendUtterance(session.id, {
+      id: "utt-1",
+      sequence: 1,
+      participantId: "customer",
+      participantName: "Customer",
+      text: "We reconcile orders manually.",
+      startedAt: 1,
+      endedAt: 2,
+      finalized: true
+    });
+    store.setStatus(session.id, "ended");
+    expect(() => store.editPostCall(session.id, 0, session.graph, ""))
+      .toThrow("Finish the final analysis");
+  });
+
   it("keeps utterance revisions in the append-only log and rebuilds the projection", () => {
     const store = new SessionStore();
     const session = store.create("https://zoom.example/test", "session-2");

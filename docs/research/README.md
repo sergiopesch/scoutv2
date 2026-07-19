@@ -20,6 +20,9 @@ way and where its extension seams are.
    Scout's original-state audit, evaluated architecture, and delivery roadmap.
 5. [Renderer ecosystem](generative-diagram-ecosystem.md) — comparison of Mermaid,
    React Flow, ELK.js, BPMN tooling, commercial SDKs, and generative services.
+6. [Post-call editing and Codex handoff](post-call-codex-handoff.md) — explicit
+   review approval, full-snapshot edits, revision-locked package publication,
+   security boundaries, and the truthful Codex launch contract.
 
 ## Current decision
 

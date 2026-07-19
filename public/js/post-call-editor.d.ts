@@ -1,0 +1,12 @@
+export const POST_CALL_VIEW_KINDS: string[];
+export const POST_CALL_NODE_KINDS: Readonly<Record<string, string[]>>;
+export function isPostCallReviewPath(pathname?: string): boolean;
+export function postCallReviewView(snapshot: any, saving?: boolean): any;
+export function loadPostCallReview(sessionId: string, fetchImpl?: typeof fetch): Promise<any>;
+export function savePostCallReview(sessionId: string, edit: any, fetchImpl?: typeof fetch): Promise<any>;
+export function addGraphNode(graph: any, viewKind: string, scope: string, evidenceId: string, idFactory?: () => string): { graph: any; entityId: string };
+export function removeGraphNode(graph: any, nodeId: string): any;
+export function updateGraphNode(graph: any, nodeId: string, viewKind: string, changes: any): any;
+export function addGraphEdge(graph: any, viewKind: string, from: string, to: string, scope: string, evidenceId: string, idFactory?: () => string): { graph: any; entityId: string };
+export function removeGraphEdge(graph: any, edgeId: string): any;
+export function updateGraphEdge(graph: any, edgeId: string, viewKind: string, changes: any): any;

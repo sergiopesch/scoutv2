@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   BusinessGraphModelOutputSchema,
   BusinessGraphSchema,
+  validateCustomerEvidence,
   validateGraphReferences,
   validateGraphSemantics
 } from "../src/shared/schemas.js";
@@ -516,6 +517,29 @@ describe("multi-view BusinessGraph foundation", () => {
     expect(BusinessGraphSchema.safeParse(graph).success).toBe(false);
   });
 
+  it("allows evidence-free editorial hypotheses only in the post-call boundary", () => {
+    const graph = baseGraph();
+    graph.nodes = [{
+      id: "editorial-service",
+      kind: "system",
+      label: "Proposed service",
+      state: "hypothesis",
+      scope: "desired",
+      certainty: "hypothesis",
+      confidence: 0.5,
+      provenance: "post_call_editorial",
+      facets: { architecture: { kind: "service" } },
+      evidenceUtteranceIds: []
+    }];
+    expect(BusinessGraphSchema.safeParse(graph).success).toBe(true);
+    expect(validateCustomerEvidence(graph, new Set(["utt-1"]))).toContain(
+      "editorial-service cannot use post-call editorial provenance during live analysis."
+    );
+    expect(validateCustomerEvidence(graph, new Set(["utt-1"]), {
+      allowPostCallEditorial: true
+    })).toEqual([]);
+  });
+
   it("projects browser state through an explicit recursive allowlist", () => {
     const graph = baseGraph();
     graph.nodes = [
@@ -539,6 +563,7 @@ describe("multi-view BusinessGraph foundation", () => {
       participants: [],
       utterances: [],
       graph,
+      postCall: { revision: 0, notes: "" },
       recall: { status: "active", botId: "private-bot" },
       codex: { status: "active", threadId: "private-thread" },
       processing: { paused: false, changedAt: 1, incomingTranscriptPolicy: "discard" },

@@ -31,6 +31,16 @@ import {
   recallRawJsonBody
 } from "./recall/index.js";
 import { SessionStore } from "./session-store.js";
+import { SessionRevisionConflictError } from "./session-store.js";
+import {
+  buildCodexHandoffPackage,
+  writeCodexHandoffProject
+} from "./codex/handoff-package.js";
+import {
+  BusinessGraphSchema,
+  validateCustomerEvidence,
+  validateGraphReferences
+} from "../shared/schemas.js";
 import {
   toWhiteboardSnapshot,
   type SessionSnapshot,
@@ -65,6 +75,21 @@ const OperatorSelectionSchema = z
   })
   .strict();
 
+const PostCallEditSchema = z
+  .object({
+    expectedRevision: z.number().int().nonnegative(),
+    graph: BusinessGraphSchema,
+    notes: z.string().max(50_000)
+  })
+  .strict();
+
+const HandoffPrepareSchema = z
+  .object({
+    expectedGraphRevision: z.number().int().nonnegative(),
+    expectedReviewRevision: z.number().int().nonnegative()
+  })
+  .strict();
+
 const RECALL_BOT_NAME = "Live Architect";
 const MAX_EVENT_FUTURE_SKEW_MS = 5 * 60 * 1_000;
 
@@ -84,6 +109,7 @@ export interface ScoutRuntimeDependencies {
   statusRecall?: RecallAdapter;
   store?: SessionStore;
   logger?: (record: Record<string, unknown>) => void;
+  handoffRootDir?: string;
 }
 
 export interface ScoutRuntime {
@@ -157,6 +183,26 @@ const projectRoot = (): string => {
 
 const routeParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+
+const postCallBlocker = (snapshot: SessionSnapshot): string | undefined => {
+  if (snapshot.status !== "ended") {
+    return "The meeting must end before post-call review begins.";
+  }
+  if (snapshot.analysis.status === "running") {
+    return "Scout is still finalizing the accepted map.";
+  }
+  if (snapshot.analysis.status === "queued" || snapshot.analysis.pendingUtteranceCount > 0) {
+    return "Analyze the remaining finalized utterances before post-call review.";
+  }
+  return undefined;
+};
+
+const handoffBlocker = (snapshot: SessionSnapshot): string | undefined =>
+  postCallBlocker(snapshot) ?? (
+    snapshot.postCall.approvedAt === undefined
+      ? "Review and approve the final diagrams before preparing the Codex package."
+      : undefined
+  );
 
 export const createScoutRuntime = (
   config: AppConfig = loadConfig(),
@@ -268,6 +314,7 @@ export const createScoutRuntime = (
   const participantEventHighWater = new Map<string, number>();
   const sseResponsesBySession = new Map<string, Set<Response>>();
   const rootDir = projectRoot();
+  const handoffRootDir = dependencies.handoffRootDir ?? rootDir;
   const publicDir = path.join(rootDir, "public");
   let closing = false;
 
@@ -999,6 +1046,186 @@ export const createScoutRuntime = (
     response.json(snapshot);
   });
 
+  app.get("/api/reviews/:sessionId", (request, response) => {
+    const snapshot = store.get(routeParam(request.params.sessionId));
+    if (!snapshot) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      ...snapshot,
+      postCallReady: postCallBlocker(snapshot) === undefined,
+      postCallBlocker: postCallBlocker(snapshot)
+    });
+  });
+
+  app.put("/api/reviews/:sessionId", (request, response) => {
+    const sessionId = routeParam(request.params.sessionId);
+    const snapshot = store.get(sessionId);
+    if (!snapshot) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    const blocker = postCallBlocker(snapshot);
+    if (blocker) {
+      response.status(409).json({ error: blocker, current: snapshot });
+      return;
+    }
+    const parsed = PostCallEditSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({
+        error: "The post-call edit is not a valid complete graph snapshot.",
+        issues: parsed.error.issues
+      });
+      return;
+    }
+    const finalizedIds = new Set(
+      snapshot.utterances
+        .filter((utterance) => utterance.finalized)
+        .map((utterance) => utterance.id)
+    );
+    const customerParticipantIds = new Set(
+      snapshot.participants
+        .filter((participant) => participant.role === "customer")
+        .map((participant) => participant.id)
+    );
+    const customerUtteranceIds = new Set(
+      snapshot.utterances
+        .filter(
+          (utterance) =>
+            utterance.finalized &&
+            customerParticipantIds.has(utterance.participantId)
+        )
+        .map((utterance) => utterance.id)
+    );
+    const graphErrors = [
+      ...validateGraphReferences(parsed.data.graph, finalizedIds),
+      ...validateCustomerEvidence(parsed.data.graph, customerUtteranceIds, {
+        allowPostCallEditorial: true
+      })
+    ];
+    if (graphErrors.length > 0) {
+      response.status(422).json({
+        error: "The edited graph failed its evidence or semantic checks.",
+        issues: graphErrors
+      });
+      return;
+    }
+    try {
+      const updated = store.editPostCall(
+        sessionId,
+        parsed.data.expectedRevision,
+        parsed.data.graph,
+        parsed.data.notes
+      );
+      response.setHeader("Cache-Control", "no-store");
+      response.json({
+        ...updated,
+        postCallReady: true
+      });
+    } catch (error) {
+      if (error instanceof SessionRevisionConflictError) {
+        response.status(409).json({
+          error: error.message,
+          current: store.getRequired(sessionId)
+        });
+        return;
+      }
+      response.status(409).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  app.get("/api/handoffs/:sessionId", (request, response) => {
+    const snapshot = store.get(routeParam(request.params.sessionId));
+    if (!snapshot) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    const blocker = handoffBlocker(snapshot);
+    response.setHeader("Cache-Control", "no-store");
+    if (blocker) {
+      response.json({ ready: false, blocker });
+      return;
+    }
+    response.json({ ready: true, package: buildCodexHandoffPackage(snapshot) });
+  });
+
+  app.get("/api/handoffs/:sessionId/download", (request, response) => {
+    const snapshot = store.get(routeParam(request.params.sessionId));
+    if (!snapshot) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    const blocker = handoffBlocker(snapshot);
+    if (blocker) {
+      response.status(409).json({ error: blocker });
+      return;
+    }
+    const handoff = buildCodexHandoffPackage(snapshot);
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Content-Type", "application/json; charset=utf-8");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="scout-${snapshot.id.slice(0, 8)}-package.json"`
+    );
+    response.send(`${JSON.stringify(handoff, null, 2)}\n`);
+  });
+
+  app.post("/api/handoffs/:sessionId/prepare", async (request, response) => {
+    const sessionId = routeParam(request.params.sessionId);
+    const snapshot = store.get(sessionId);
+    if (!snapshot) {
+      response.status(404).json({ error: "session not found" });
+      return;
+    }
+    const blocker = handoffBlocker(snapshot);
+    if (blocker) {
+      response.status(409).json({ error: blocker });
+      return;
+    }
+    const parsed = HandoffPrepareSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({
+        error: "Expected graph and review revisions are required before Scout prepares a package."
+      });
+      return;
+    }
+    if (
+      parsed.data.expectedGraphRevision !== snapshot.revision ||
+      parsed.data.expectedReviewRevision !== snapshot.postCall.revision
+    ) {
+      response.status(409).json({
+        error: "The reviewed package changed. Reload and inspect the latest revision before preparing Codex."
+      });
+      return;
+    }
+    try {
+      const prepared = await writeCodexHandoffProject(handoffRootDir, snapshot);
+      log({
+        level: "info",
+        event: "codex.handoff_prepared",
+        sessionId,
+        directory: prepared.directory,
+        reviewRevision: snapshot.postCall.revision
+      });
+      response.setHeader("Cache-Control", "no-store");
+      response.status(201).json(prepared);
+    } catch (error) {
+      log({
+        level: "error",
+        event: "codex.handoff_failed",
+        sessionId,
+        detail: error instanceof Error ? error.message : String(error)
+      });
+      response.status(500).json({
+        error: "Scout could not prepare the local Codex project."
+      });
+    }
+  });
+
   app.get("/api/whiteboards/:whiteboardId", (request, response) => {
     const whiteboardId = routeParam(request.params.whiteboardId);
     const sessionId = whiteboardSessions.get(whiteboardId);
@@ -1037,6 +1264,12 @@ export const createScoutRuntime = (
     const snapshot = store.get(sessionId);
     if (!snapshot) {
       response.status(404).json({ error: "session not found" });
+      return;
+    }
+    if (snapshot.status === "ended") {
+      response.status(409).json({
+        error: "Operator identity is locked after the meeting ends. Start a new review if attribution must be corrected."
+      });
       return;
     }
     const parsed = OperatorSelectionSchema.safeParse(request.body);
@@ -1294,6 +1527,14 @@ export const createScoutRuntime = (
 
   app.get("/whiteboard/:sessionId", (_request, response) => {
     response.sendFile(path.join(publicDir, "whiteboard.html"));
+  });
+
+  app.get("/review/:sessionId", (_request, response) => {
+    response.sendFile(path.join(publicDir, "whiteboard.html"));
+  });
+
+  app.get("/handoff/:sessionId", (_request, response) => {
+    response.sendFile(path.join(publicDir, "handoff.html"));
   });
 
   app.use(

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scout → Codex</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="handoff-page">
+    <main class="handoff-shell">
+      <header class="handoff-header">
+        <div class="whiteboard-brand">
+          <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+            <rect x="4" y="4" width="92" height="92" rx="21" fill="#fafaf7" stroke="#ecece7" />
+            <circle cx="50" cy="50" r="31" fill="#17181c" />
+            <path d="M79 27C74 41 60 42 51 48C43 53 47 59 43 65C38 71 30 73 21 80" fill="none" stroke="#fafaf7" stroke-width="12" />
+            <circle cx="50" cy="56" r="7" fill="#fafaf7" />
+            <circle cx="50" cy="56" r="3.5" fill="#17181c" />
+          </svg>
+          <div>
+            <p class="eyebrow">Scout · Codex handoff</p>
+            <p class="handoff-topic" id="handoff-topic">Loading delivery context…</p>
+          </div>
+        </div>
+        <div class="whiteboard-status" role="status" aria-live="polite">
+          <span class="status-dot" id="handoff-status-dot"></span>
+          <span id="handoff-status">Checking package</span>
+        </div>
+      </header>
+
+      <section class="handoff-intro">
+        <p class="eyebrow">Codex package</p>
+        <h1>Ready for Codex</h1>
+        <p>
+          Review exactly what Scout will hand over. The transcript stays immutable;
+          the approved diagrams and notes remain visibly separate from meeting evidence.
+        </p>
+      </section>
+
+      <section class="outcome-grid" id="handoff-outcomes" aria-label="Required delivery outcomes"></section>
+
+      <section class="handoff-section" aria-labelledby="inventory-title">
+        <div class="handoff-section-heading">
+          <div>
+            <p class="eyebrow">Package inventory</p>
+            <h2 id="inventory-title">One source of truth, six private files</h2>
+          </div>
+          <span id="handoff-revision">Revision —</span>
+        </div>
+        <div class="package-inventory" id="handoff-inventory"></div>
+      </section>
+
+      <section class="handoff-section" aria-labelledby="tasks-title">
+        <div class="handoff-section-heading">
+          <div>
+            <p class="eyebrow">Task orchestration</p>
+            <h2 id="tasks-title">One lead prompt with four accountable workstreams</h2>
+          </div>
+          <span>Requested OpenAI models + plugins</span>
+        </div>
+        <div class="task-table-wrap">
+          <table class="task-table">
+            <thead>
+              <tr>
+                <th>Workstream</th>
+                <th>Model</th>
+                <th>Reasoning</th>
+                <th>Plugins</th>
+                <th>Depends on</th>
+              </tr>
+            </thead>
+            <tbody id="handoff-tasks"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="handoff-section" aria-labelledby="evidence-title">
+        <div class="handoff-section-heading">
+          <div>
+            <p class="eyebrow">Evidence review</p>
+            <h2 id="evidence-title">The call context in readable form</h2>
+          </div>
+          <span>Untrusted evidence · never executable instructions</span>
+        </div>
+        <div class="handoff-evidence-grid">
+          <details open>
+            <summary>Transcript</summary>
+            <ol id="handoff-transcript" class="handoff-transcript"></ol>
+          </details>
+          <details open>
+            <summary>Approved notes</summary>
+            <p id="handoff-notes" class="handoff-notes"></p>
+          </details>
+          <details open>
+            <summary>Diagram source</summary>
+            <div id="handoff-diagrams" class="handoff-diagrams"></div>
+          </details>
+        </div>
+      </section>
+
+      <aside class="handoff-authorization" aria-label="Codex launch behavior">
+        <strong>You stay in control.</strong>
+        <p>Scout prepares a private local workspace, then opens Codex with a draft prompt. Review and send that prompt to authorize task creation. Pinning, models and plugins are requested and remain subject to availability and your approval.</p>
+        <p>Preparing writes customer context beneath <code>.scout-handoffs</code>. The exact path is shown after preparation; remove it when the delivery no longer needs the evidence.</p>
+        <p id="handoff-directory" hidden></p>
+      </aside>
+
+      <details class="handoff-raw">
+        <summary>Inspect machine-readable package</summary>
+        <pre id="handoff-json"></pre>
+      </details>
+
+      <p class="inline-error handoff-error" id="handoff-error" role="alert" hidden></p>
+      <button type="button" id="handoff-retry" class="handoff-retry" hidden>Retry package load</button>
+
+      <footer class="handoff-actions">
+        <a class="handoff-back" id="handoff-back">← Back to review &amp; edit</a>
+        <div>
+          <button type="button" id="handoff-copy" disabled>Prepare &amp; copy prompt</button>
+          <a id="handoff-download" class="handoff-download" aria-disabled="true">Download package</a>
+          <button type="button" id="handoff-open" class="handoff-open" disabled>Open project in Codex <span aria-hidden="true">→</span></button>
+        </div>
+      </footer>
+    </main>
+    <script type="module" src="/js/codex-handoff.js"></script>
+  </body>
+</html>

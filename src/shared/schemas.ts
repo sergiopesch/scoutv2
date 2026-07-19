@@ -16,7 +16,8 @@ import {
 } from "./types.js";
 
 const id = z.string().min(1).max(64);
-const evidenceIds = z.array(z.string().min(1).max(120)).min(1).max(12);
+const evidenceIds = z.array(z.string().min(1).max(120)).max(12);
+const requiredEvidenceIds = evidenceIds.min(1);
 const topicEvidenceIds = z.array(z.string().min(1).max(120)).max(12);
 
 const processPlacement = z
@@ -163,10 +164,19 @@ export const BusinessGraphSchema = z
             scope: z.enum(graphScopes).optional(),
             certainty: z.enum(graphCertainties).optional(),
             confidence: z.number().min(0).max(1),
+            provenance: z.enum(["meeting", "post_call_editorial"]).optional(),
             facets: nodeFacets.optional(),
             evidenceUtteranceIds: evidenceIds
           })
           .strict()
+          .superRefine((node, context) => {
+            if (node.evidenceUtteranceIds.length === 0 && node.provenance !== "post_call_editorial") {
+              context.addIssue({ code: "custom", message: "Meeting-derived nodes require utterance evidence." });
+            }
+            if (node.provenance === "post_call_editorial" && (node.evidenceUtteranceIds.length > 0 || node.certainty !== "hypothesis")) {
+              context.addIssue({ code: "custom", message: "Post-call editorial nodes must be evidence-free hypotheses." });
+            }
+          })
       )
       .max(32),
     edges: z
@@ -182,10 +192,19 @@ export const BusinessGraphSchema = z
             scope: z.enum(graphScopes).optional(),
             certainty: z.enum(graphCertainties).optional(),
             confidence: z.number().min(0).max(1),
+            provenance: z.enum(["meeting", "post_call_editorial"]).optional(),
             facets: edgeFacets.optional(),
             evidenceUtteranceIds: evidenceIds
           })
           .strict()
+          .superRefine((edge, context) => {
+            if (edge.evidenceUtteranceIds.length === 0 && edge.provenance !== "post_call_editorial") {
+              context.addIssue({ code: "custom", message: "Meeting-derived edges require utterance evidence." });
+            }
+            if (edge.provenance === "post_call_editorial" && (edge.evidenceUtteranceIds.length > 0 || edge.certainty !== "hypothesis")) {
+              context.addIssue({ code: "custom", message: "Post-call editorial edges must be evidence-free hypotheses." });
+            }
+          })
       )
       .max(64),
     pains: z
@@ -199,7 +218,7 @@ export const BusinessGraphSchema = z
             state: z.enum(graphStates),
             scope: z.enum(graphScopes).optional(),
             certainty: z.enum(graphCertainties).optional(),
-            evidenceUtteranceIds: evidenceIds
+            evidenceUtteranceIds: requiredEvidenceIds
           })
           .strict()
       )
@@ -210,7 +229,7 @@ export const BusinessGraphSchema = z
           .object({
             id,
             description: z.string().min(1).max(180),
-            evidenceUtteranceIds: evidenceIds
+            evidenceUtteranceIds: requiredEvidenceIds
           })
           .strict()
       )
@@ -218,7 +237,7 @@ export const BusinessGraphSchema = z
     suggestedQuestion: z
       .object({
         text: z.string().min(1).max(240),
-        evidenceUtteranceIds: evidenceIds
+        evidenceUtteranceIds: requiredEvidenceIds
       })
       .strict()
       .optional()
@@ -289,7 +308,7 @@ export const BusinessGraphModelOutputSchema = BusinessGraphSchema.safeExtend({
     .object({
       id,
       label: z.string().min(1).max(100),
-      evidenceUtteranceIds: evidenceIds
+      evidenceUtteranceIds: requiredEvidenceIds
     })
     .strict(),
   nodes: z.array(
@@ -725,9 +744,20 @@ export const validateGraphReferences = (
 /** Every business finding must be grounded in a designated customer's words. */
 export const validateCustomerEvidence = (
   graph: BusinessGraph,
-  customerUtteranceIds: Set<string>
+  customerUtteranceIds: Set<string>,
+  options: { allowPostCallEditorial?: boolean } = {}
 ): string[] => {
   const errors: string[] = [];
+  const editorialIds = new Set(
+    [...graph.nodes, ...graph.edges]
+      .filter((item) => item.provenance === "post_call_editorial")
+      .map((item) => item.id)
+  );
+  if (!options.allowPostCallEditorial) {
+    for (const entityId of editorialIds) {
+      errors.push(`${entityId} cannot use post-call editorial provenance during live analysis.`);
+    }
+  }
   const evidenceGroups = [
     [graph.topic.id, graph.topic.evidenceUtteranceIds] as const,
     ...graph.nodes.map((item) => [item.id, item.evidenceUtteranceIds] as const),
@@ -740,6 +770,7 @@ export const validateCustomerEvidence = (
   ];
 
   for (const [entityId, evidence] of evidenceGroups) {
+    if (options.allowPostCallEditorial && editorialIds.has(entityId)) continue;
     if (evidence.some((utteranceId) => !customerUtteranceIds.has(utteranceId))) {
       errors.push(`${entityId} must cite designated-customer evidence only.`);
     }

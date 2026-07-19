@@ -110,12 +110,56 @@ trying to merge incremental graph patches.
 The implemented design, quality gate, and longer-term renderer evaluation are
 indexed in [the diagram engineering notes](docs/research/README.md).
 
+## Human-reviewed post-call delivery
+
+When the meeting ends and the last finalized utterance has been analyzed, the
+operator opens **Review & edit**. Process, Organisation, and Architecture remain
+projections of one complete `BusinessGraph`, so post-call changes use the same
+rendering and geometry gates as the live meeting rather than creating a second
+diagram format.
+
+The review surface supports adding, relabelling, retyping, reconnecting,
+reversing, and removing elements; editing connection labels and
+diagram-specific relationship semantics; changing the map title and notes; and
+undo/redo before a complete-snapshot save. New human additions are deliberately
+marked as post-call hypotheses with no customer evidence—they never borrow an
+unrelated transcript citation. Saving is also the explicit approval gate. Until
+someone approves the exact graph revision, the Codex package remains locked.
+
+After approval, **Let Codex do its thing** opens a reviewable package containing:
+
+- the minimized, immutable finalized transcript;
+- the approved semantic graph and current/target view definitions;
+- human notes, contradictions, open questions, and four required outcomes;
+- a lead prompt plus four model/reasoning/plugin workstream requests; and
+- an integrity manifest with SHA-256 hashes for every published artifact.
+
+Preparing the handoff writes a private, revision-specific workspace beneath
+`.scout-handoffs/` with directory mode `0700` and file mode `0600`, then opens
+the supported `codex://new?path=...&prompt=...` deep link. Codex receives a draft
+prompt: the user still reviews and sends it to authorize task creation. Pinning,
+separate tasks, model selectors, and plugin use are requested—not silently
+performed—and remain subject to the current Codex surface, availability, and
+user approval. Transcript content is explicitly treated as untrusted evidence,
+and raw customer context must not leave the workspace through a plugin or
+network service without separate approval.
+
+Post-call review state remains in memory under the MVP's no-database contract
+and expires with `SESSION_RETENTION_MS` (four hours by default). A prepared local
+handoff persists until a person removes it. See the full contracts, security
+boundaries, and test matrix in
+[the post-call handoff engineering note](docs/research/post-call-codex-handoff.md).
+
 ## Surfaces
 
 - `/operator/:sessionId` — attributed transcript, participants, integration
   health, revision state, suggested follow-up, and manual analysis control.
 - `/whiteboard/:whiteboardId` — presentation-safe multi-view map for screen
   sharing. The opaque public ID is returned when the session is created.
+- `/review/:sessionId` — terminal-session diagram and notes editor with explicit
+  human approval.
+- `/handoff/:sessionId` — readable Scout-to-Codex package preview and authorized
+  local workspace preparation.
 - `/events/:sessionId` — full operator session snapshots over SSE.
 - `/events/whiteboards/:whiteboardId` — presentation-safe whiteboard projections
   over SSE, without transcript or integration internals.

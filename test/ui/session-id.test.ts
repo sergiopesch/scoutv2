@@ -14,6 +14,15 @@ describe("parseSessionId", () => {
     expect(parseSessionId("/whiteboard/meeting%20one")).toBe("meeting one");
   });
 
+  it("reads IDs from post-call review and handoff routes", () => {
+    expect(parseSessionId("/review/session-post-call-123")).toBe(
+      "session-post-call-123"
+    );
+    expect(parseSessionId("/handoff/session-post-call-123")).toBe(
+      "session-post-call-123"
+    );
+  });
+
   it("rejects malformed and unrelated paths", () => {
     expect(parseSessionId("/operator")).toBeNull();
     expect(parseSessionId("/whiteboard/id/extra")).toBeNull();
