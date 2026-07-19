@@ -5,7 +5,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/server/config.js";
 import type { AnalyzeMeetingInput, MeetingAnalyzer } from "../src/server/contracts.js";
+import type { CodexHandoffLaunchResult } from "../src/server/codex/index.js";
 import { createScoutRuntime } from "../src/server/index.js";
+import type { SessionSnapshot } from "../src/shared/types.js";
 
 const config: AppConfig = {
   port: 0,
@@ -31,6 +33,52 @@ class IdleAnalyzer implements MeetingAnalyzer {
   async close(): Promise<void> {}
   async resetSession(): Promise<void> {}
   async checkReadiness() { return { ready: true }; }
+}
+
+class FakeHandoffLauncher {
+  launchCount = 0;
+  closeCount = 0;
+
+  async launch(
+    rootDir: string,
+    _snapshot: SessionSnapshot
+  ): Promise<CodexHandoffLaunchResult> {
+    this.launchCount += 1;
+    const directory = path.join(rootDir, ".scout-handoffs", "approved-review");
+    const task = (index: number) => ({
+      taskId: `task-${index}`,
+      title: `Delivery task ${index}`,
+      threadId: `thread-${index}`,
+      turnId: `turn-${index}`,
+      model: "gpt-5.6-sol",
+      reasoning: "high",
+      dependsOn: [],
+      status: "started" as const
+    });
+    return {
+      directory,
+      files: ["manifest.json", "codex-launch.json"],
+      manifestHash: "test-manifest-hash",
+      launchUrl: "codex://threads/lead-thread",
+      project: {
+        kind: "local-workspace-session-tree",
+        nativeProjectCreated: false,
+        directory,
+        sessionId: "session-tree"
+      },
+      pinning: {
+        requested: true,
+        applied: false,
+        reason: "Codex app-server does not expose a project or thread pin operation."
+      },
+      lead: task(0),
+      tasks: [task(1), task(2), task(3), task(4)]
+    };
+  }
+
+  async close(): Promise<void> {
+    this.closeCount += 1;
+  }
 }
 
 const prepareEndedSession = (runtime: ReturnType<typeof createScoutRuntime>) => {
@@ -83,14 +131,36 @@ describe("post-call review and Codex handoff routes", () => {
 
     const graph = structuredClone(snapshot.graph);
     graph.nodes[0]!.label = "Reviewed Orders API";
+    const annotations = {
+      [graph.nodes[0]!.id]: {
+        targetType: "node",
+        disposition: "amended",
+        note: "  Renamed with the customer team's preferred language.  "
+      }
+    };
     const saved = await request(runtime.app)
       .put(`/api/reviews/${snapshot.id}`)
-      .send({ expectedRevision: 1, graph, notes: "Confirmed after the call." });
+      .send({
+        expectedRevision: 1,
+        graph,
+        notes: "Confirmed after the call.",
+        annotations
+      });
     expect(saved.status).toBe(200);
     expect(saved.body).toMatchObject({
       revision: 2,
       graph: { nodes: [{ label: "Reviewed Orders API" }] },
-      postCall: { revision: 1, notes: "Confirmed after the call." }
+      postCall: {
+        revision: 1,
+        notes: "Confirmed after the call.",
+        annotations: {
+          [graph.nodes[0]!.id]: {
+            targetType: "node",
+            disposition: "amended",
+            note: "Renamed with the customer team's preferred language."
+          }
+        }
+      }
     });
 
     const stale = await request(runtime.app)
@@ -98,6 +168,28 @@ describe("post-call review and Codex handoff routes", () => {
       .send({ expectedRevision: 1, graph, notes: "Stale" });
     expect(stale.status).toBe(409);
     expect(stale.body.current.revision).toBe(2);
+    await runtime.close();
+  });
+
+  it("rejects review annotations that do not identify an item of the declared type", async () => {
+    const runtime = createScoutRuntime(config, { analyzer: new IdleAnalyzer() });
+    const snapshot = prepareEndedSession(runtime);
+    const response = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: snapshot.revision,
+        graph: snapshot.graph,
+        notes: "",
+        annotations: {
+          [snapshot.graph.nodes[0]!.id]: {
+            targetType: "edge",
+            disposition: "unsupported",
+            note: "The relationship was not confirmed."
+          }
+        }
+      });
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain("annotation");
     await runtime.close();
   });
 
@@ -127,7 +219,9 @@ describe("post-call review and Codex handoff routes", () => {
     const preview = await request(runtime.app).get(`/api/handoffs/${snapshot.id}`);
     expect(preview.status).toBe(200);
     expect(preview.body.ready).toBe(true);
-    expect(preview.body.package.orchestration.tasks).toHaveLength(4);
+    expect(
+      preview.body.package.orchestration.tasks.map((task: { title: string }) => task.title)
+    ).toEqual(["Architecture change design", "Integrated delivery plan"]);
 
     const download = await request(runtime.app).get(
       `/api/handoffs/${snapshot.id}/download`
@@ -138,22 +232,24 @@ describe("post-call review and Codex handoff routes", () => {
     await runtime.close();
   });
 
-  it("prepares only the exact reviewed revision in an isolated local workspace", async () => {
+  it("launches only the exact reviewed revision as linked Codex work", async () => {
     const handoffRootDir = await mkdtemp(path.join(os.tmpdir(), "scout-runtime-handoff-"));
+    const handoffLauncher = new FakeHandoffLauncher();
     const runtime = createScoutRuntime(config, {
       analyzer: new IdleAnalyzer(),
-      handoffRootDir
+      handoffRootDir,
+      handoffLauncher
     });
     const snapshot = prepareEndedSession(runtime);
     const approved = await request(runtime.app)
       .put(`/api/reviews/${snapshot.id}`)
       .send({ expectedRevision: snapshot.revision, graph: snapshot.graph, notes: "Approved." });
     const stale = await request(runtime.app)
-      .post(`/api/handoffs/${snapshot.id}/prepare`)
+      .post(`/api/handoffs/${snapshot.id}/launch`)
       .send({ expectedGraphRevision: snapshot.revision, expectedReviewRevision: 0 });
     expect(stale.status).toBe(409);
     const prepared = await request(runtime.app)
-      .post(`/api/handoffs/${snapshot.id}/prepare`)
+      .post(`/api/handoffs/${snapshot.id}/launch`)
       .send({
         expectedGraphRevision: approved.body.revision,
         expectedReviewRevision: approved.body.postCall.revision
@@ -161,8 +257,12 @@ describe("post-call review and Codex handoff routes", () => {
     expect(prepared.status).toBe(201);
     expect(prepared.body.directory.startsWith(handoffRootDir)).toBe(true);
     expect(prepared.body.files).toContain("manifest.json");
+    expect(prepared.body.lead.threadId).toBe("thread-0");
+    expect(prepared.body.tasks).toHaveLength(4);
     expect(prepared.body).not.toHaveProperty("package");
     await runtime.close();
+    expect(handoffLauncher.launchCount).toBe(1);
+    expect(handoffLauncher.closeCount).toBe(1);
     await rm(handoffRootDir, { recursive: true, force: true });
   });
 

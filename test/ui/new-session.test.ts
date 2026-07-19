@@ -234,19 +234,19 @@ describe("new session readiness presentation", () => {
     expect(view.admissionText).toContain("admit");
   });
 
-  it("states that rehearsal creates views without a bot or admission", () => {
+  it("presents rehearsal as a product workspace without implying a participant", () => {
     const view = newSessionView(ready("rehearsal"));
     expect(view).toMatchObject({
       canCreate: true,
       mode: "rehearsal",
-      statusLabel: "Rehearsal mode",
-      startButton: "Start rehearsal",
-      submittingButton: "Creating rehearsal…",
-      successTitle: "Rehearsal views are ready."
+      statusLabel: "Workspace mode",
+      startButton: "Create workspace",
+      submittingButton: "Creating workspace…",
+      successTitle: "Scout workspace is ready."
     });
-    expect(view.admissionText).toContain("No participant will join");
-    expect(view.admissionText).toContain("no host admission");
-    expect(view.submittingMessage).toContain("No meeting participant");
+    expect(view.admissionText).toContain("No participant joins");
+    expect(view.admissionText).toContain("workspace mode");
+    expect(view.submittingMessage).toContain("operator workspace");
     expect(view.submittingMessage).not.toContain("Live Architect");
   });
 

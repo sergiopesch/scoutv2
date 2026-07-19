@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  analysisErrorMessage,
   analysisActionView,
   identitySelectionView,
   sessionStreamView,
@@ -134,7 +135,7 @@ describe("operator action views", () => {
     }))).toEqual({
       disabled: false,
       buttonText: "Retry analysis",
-      note: "Codex timed out."
+      note: analysisErrorMessage()
     });
   });
 

@@ -63,32 +63,30 @@ const rehearsalView = {
   canCreate: true,
   mode: "rehearsal",
   statusState: "rehearsal",
-  statusLabel: "Rehearsal mode",
-  sessionEyebrow: "New rehearsal session",
+  statusLabel: "Workspace mode",
+  sessionEyebrow: "New Scout workspace",
   lede:
-    "Create operator and whiteboard views without joining or recording the meeting. Finalized test utterances can then be supplied through the rehearsal ingest path.",
-  stepOneTitle: "Add a reference link",
-  stepOneText: "The link identifies the rehearsal but will not be opened.",
-  stepTwoTitle: "No participant will join",
-  stepTwoText: "Rehearsal mode does not create a Recall bot or request host admission.",
-  stepThreeTitle: "Exercise the working views",
-  stepThreeText: "Use finalized rehearsal utterances to test attribution and graph updates.",
-  formTitle: "Create a rehearsal session",
-  fieldLabel: "Reference meeting URL",
+    "Open the operator workspace and shared canvas without adding a participant to the meeting.",
+  stepOneTitle: "Add a meeting reference",
+  stepOneText: "The link identifies this workspace and will not be opened.",
+  stepTwoTitle: "Open the working views",
+  stepTwoText: "Scout prepares the operator workspace and shared canvas.",
+  stepThreeTitle: "Add finalized inputs",
+  stepThreeText: "Attributed inputs update the business map as they arrive.",
+  formTitle: "Create a Scout workspace",
+  fieldLabel: "Meeting reference",
   fieldHint:
-    "The HTTPS link identifies this rehearsal; Scout will not open or join it.",
-  readinessMessage: "Local rehearsal mode is ready. No meeting bot will be created.",
-  admissionText:
-    "Rehearsal mode creates views only. No participant will join, and no host admission is required.",
-  startButton: "Start rehearsal",
-  submittingButton: "Creating rehearsal…",
-  submittingMessage:
-    "Preparing operator and whiteboard views. No meeting participant will be created.",
-  successButton: "Rehearsal started",
-  successTitle: "Rehearsal views are ready.",
+    "Used only to identify this workspace. Scout will not open or join the link.",
+  readinessMessage: "Workspace mode is ready. No meeting participant will be created.",
+  admissionText: "No participant joins the meeting in workspace mode.",
+  startButton: "Create workspace",
+  submittingButton: "Creating workspace…",
+  submittingMessage: "Preparing the operator workspace and shared canvas…",
+  successButton: "Workspace ready",
+  successTitle: "Scout workspace is ready.",
   successMessage:
-    "Rehearsal session created. Save both private links, then open either view when you are ready.",
-  footerMode: "Rehearsal · finalized · revision-aware"
+    "Workspace created. Save both private links, then open the operator view or share the canvas.",
+  footerMode: "Workspace · finalized · revision-aware"
 };
 
 function unavailableDetail(readiness, fallback) {

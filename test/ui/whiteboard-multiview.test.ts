@@ -23,8 +23,32 @@ describe("multi-view whiteboard shell", () => {
       expect(html).toContain(`aria-controls="panel-${key}"`);
       expect(html).toContain(`data-view-panel="${key}"`);
       expect(html).toContain(`data-graph-frame="${key}"`);
-      expect(html).toContain(`>${label}</span>`);
+      expect(html).toContain(`<strong>${label}</strong>`);
     }
+  });
+
+  it("keeps the canvas calm while making nodes, connections, evidence and notes editable", async () => {
+    const [html, source] = await Promise.all([readWhiteboard(), readWhiteboardController()]);
+    expect(html).toContain('id="inspector-toggle" aria-expanded="false"');
+    expect(html).toContain('id="edge-editor"');
+    expect(html).toContain('id="editor-evidence-excerpts"');
+    expect(html).toContain('id="editor-disposition-value"');
+    expect(html).toContain('id="editor-item-note"');
+    expect(html).not.toContain("view-glyph");
+    expect(html).not.toContain("BPMN-inspired");
+    expect(html).toContain('class="tab-update" data-view-update="process" hidden');
+    expect(source).toContain('dataset.edgeId = edge.id');
+    expect(source).toContain('annotations: currentSnapshot.postCall?.annotations ?? {}');
+  });
+
+  it("keeps suggested questions behind a minimal, persistent checklist dock", async () => {
+    const [html, source] = await Promise.all([readWhiteboard(), readWhiteboardController()]);
+    expect(html).toContain('id="question-dock-trigger"');
+    expect(html).toContain('aria-label="Open suggested questions"');
+    expect(html).toContain('id="question-dock-list"');
+    expect(html).not.toContain("Question worth asking next");
+    expect(source).toContain("mergeSuggestedQuestion(questionQueue, question)");
+    expect(source).toContain("markQuestionAsked(questionQueue, question.id, input.checked)");
   });
 
   it("provides state, zoom, follow-live, summary and accessible outline controls", async () => {

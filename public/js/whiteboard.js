@@ -34,19 +34,31 @@ import {
   updateGraphEdge,
   updateGraphNode
 } from "./post-call-editor.js";
+import {
+  markQuestionAsked,
+  mergeSuggestedQuestion,
+  questionQueueStorageKey,
+  readQuestionQueue,
+  writeQuestionQueue
+} from "./question-dock.js";
 
 const bySelector = (selector) => document.querySelector(selector);
 const bySelectorAll = (selector) => [...document.querySelectorAll(selector)];
 
 const elements = {
+  shell: bySelector(".whiteboard-shell"),
   topic: bySelector("#topic"),
   statusDot: bySelector("#whiteboard-status-dot"),
   statusLabel: bySelector("#whiteboard-status-label"),
   alert: bySelector("#render-alert"),
   alertText: bySelector("#render-alert-text"),
   retry: bySelector("#render-retry"),
-  followUp: bySelector("#follow-up"),
-  followUpText: bySelector("#follow-up-text"),
+  questionDockTrigger: bySelector("#question-dock-trigger"),
+  questionDockBadge: bySelector("#question-dock-badge"),
+  questionDock: bySelector("#question-dock"),
+  questionDockClose: bySelector("#question-dock-close"),
+  questionDockList: bySelector("#question-dock-list"),
+  questionDockProgress: bySelector("#question-dock-progress"),
   summary: bySelector("#view-summary"),
   revision: bySelector("#view-revision"),
   search: bySelector("#outline-search"),
@@ -56,6 +68,9 @@ const elements = {
   zoomOut: bySelector("#zoom-out"),
   zoomFit: bySelector("#zoom-fit"),
   followLive: bySelector("#follow-live"),
+  inspector: bySelector("#diagram-inspector"),
+  inspectorToggle: bySelector("#inspector-toggle"),
+  inspectorClose: bySelector("#inspector-close"),
   reviewToolbar: bySelector("#review-toolbar"),
   reviewState: bySelector("#review-state"),
   reviewUndo: bySelector("#review-undo"),
@@ -79,6 +94,37 @@ const elements = {
   editorAddConnection: bySelector("#editor-add-connection"),
   editorDeleteConfirmation: bySelector("#editor-delete-confirmation"),
   editorDelete: bySelector("#editor-delete"),
+  editorProcessFields: bySelector("#editor-process-fields"),
+  editorOrganizationFields: bySelector("#editor-organization-fields"),
+  editorArchitectureFields: bySelector("#editor-architecture-fields"),
+  editorTaskType: bySelector("#editor-task-type"),
+  editorLane: bySelector("#editor-lane"),
+  editorPool: bySelector("#editor-pool"),
+  editorPositionStatus: bySelector("#editor-position-status"),
+  editorUnit: bySelector("#editor-unit"),
+  editorBoundary: bySelector("#editor-boundary"),
+  editorBoundaryKind: bySelector("#editor-boundary-kind"),
+  editorTechnology: bySelector("#editor-technology"),
+  editorVendor: bySelector("#editor-vendor"),
+  editorProduct: bySelector("#editor-product"),
+  edgeEditor: bySelector("#edge-editor"),
+  edgeEditorKicker: bySelector("#edge-editor-kicker"),
+  edgeEditorLabel: bySelector("#edge-editor-label"),
+  edgeEditorKind: bySelector("#edge-editor-kind"),
+  edgeEditorProcessFields: bySelector("#edge-editor-process-fields"),
+  edgeEditorArchitectureFields: bySelector("#edge-editor-architecture-fields"),
+  edgeEditorCondition: bySelector("#edge-editor-condition"),
+  edgeEditorDefault: bySelector("#edge-editor-default"),
+  edgeEditorProtocol: bySelector("#edge-editor-protocol"),
+  edgeEditorData: bySelector("#edge-editor-data"),
+  edgeEditorReverse: bySelector("#edge-editor-reverse"),
+  edgeEditorDelete: bySelector("#edge-editor-delete"),
+  editorEvidence: bySelector("#editor-evidence"),
+  editorEvidenceCount: bySelector("#editor-evidence-count"),
+  editorEvidenceExcerpts: bySelector("#editor-evidence-excerpts"),
+  editorDisposition: bySelector("#editor-disposition"),
+  editorDispositionValue: bySelector("#editor-disposition-value"),
+  editorItemNote: bySelector("#editor-item-note"),
   tabs: new Map(bySelectorAll("[data-view]").map((element) => [element.dataset.view, element])),
   panels: new Map(bySelectorAll("[data-view-panel]").map((element) => [element.dataset.viewPanel, element])),
   frames: new Map(bySelectorAll("[data-graph-frame]").map((element) => [element.dataset.graphFrame, element])),
@@ -95,6 +141,7 @@ const projections = new Map();
 const unseenViews = new Set();
 let activeView = "process";
 let selectedEntityId;
+let selectedEntityType = "node";
 let currentSnapshot;
 let streamConnectionState = "connecting";
 let stopStream;
@@ -106,6 +153,16 @@ let editorTextSession;
 let deleteArmedEntityId;
 let notesTextSession = false;
 let recoveryAction;
+const questionStorage = (() => {
+  try {
+    return globalThis.sessionStorage;
+  } catch {
+    return undefined;
+  }
+})();
+const questionStorageId = questionQueueStorageKey(sessionId);
+let questionQueue = readQuestionQueue(questionStorage, questionStorageId);
+let questionDockOpen = false;
 
 mermaid.initialize({
   startOnLoad: false,
@@ -140,7 +197,7 @@ mermaid.initialize({
     lineColor: "#62656C",
     edgeLabelBackground: "#FAFAF7",
     clusterBkg: "#F7F7F3",
-    clusterBorder: "#B8B9B5",
+    clusterBorder: "#62656C",
     fontSize: "16px"
   }
 });
@@ -189,6 +246,16 @@ function tagInteractiveEntities(svg, projection) {
     element.setAttribute("role", "button");
     element.setAttribute("tabindex", "0");
     element.setAttribute("aria-label", `${node.label}. ${node.semanticType}. ${node.state ?? "unknown"}.`);
+  }
+  const edgeElements = [...svg.querySelectorAll("g.edgePath")];
+  for (const [index, edge] of [...projection.edges].sort((left, right) =>
+    String(left.id).localeCompare(String(right.id))).entries()) {
+    const element = edgeElements[index];
+    if (!element) continue;
+    element.dataset.edgeId = edge.id;
+    element.setAttribute("role", "button");
+    element.setAttribute("tabindex", "0");
+    element.setAttribute("aria-label", `${edge.label || edge.semanticType || "Connection"}. Select to inspect or edit.`);
   }
 }
 
@@ -273,11 +340,12 @@ async function renderDiagram({ viewKind, projection, revision, roleRevision, sem
 }
 
 function handleEntityInteraction(event) {
-  const target = event.target.closest?.("[data-entity-id]");
+  const target = event.target.closest?.("[data-entity-id], [data-edge-id]");
   if (!target) return;
   if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
   if (event.type === "keydown") event.preventDefault();
-  selectEntity(target.dataset.entityId);
+  if (target.dataset.edgeId) selectGraphItem(target.dataset.edgeId, "edge");
+  else selectGraphItem(target.dataset.entityId, "node");
 }
 
 async function commitDiagram({ viewKind, projection, revision, roleRevision, semanticHash, artifact }) {
@@ -297,7 +365,10 @@ async function commitDiagram({ viewKind, projection, revision, roleRevision, sem
   artifact.renderedSvg.addEventListener("keydown", handleEntityInteraction);
   projections.set(viewKind, projection);
   for (const element of frame.querySelectorAll("[data-entity-id]")) {
-    element.dataset.selected = String(element.dataset.entityId === selectedEntityId);
+    element.dataset.selected = String(selectedEntityType === "node" && element.dataset.entityId === selectedEntityId);
+  }
+  for (const element of frame.querySelectorAll("[data-edge-id]")) {
+    element.dataset.selected = String(selectedEntityType === "edge" && element.dataset.edgeId === selectedEntityId);
   }
   if (focusedEntity && viewKind === activeView) {
     const focusTarget = [...frame.querySelectorAll("[data-entity-id]")]
@@ -342,14 +413,36 @@ function updateTabIndicators() {
 }
 
 function selectEntity(entityId) {
+  selectGraphItem(entityId, "node");
+}
+
+function selectGraphItem(entityId, entityType = "node") {
   deleteArmedEntityId = undefined;
   selectedEntityId = entityId;
+  selectedEntityType = entityType;
+  setInspectorOpen(true);
   for (const frame of elements.frames.values()) {
     for (const element of frame.querySelectorAll("[data-entity-id]")) {
-      element.dataset.selected = String(element.dataset.entityId === entityId);
+      element.dataset.selected = String(entityType === "node" && element.dataset.entityId === entityId);
+    }
+    for (const element of frame.querySelectorAll("[data-edge-id]")) {
+      element.dataset.selected = String(entityType === "edge" && element.dataset.edgeId === entityId);
     }
   }
   renderActiveMetadata();
+}
+
+function setInspectorOpen(open, { focus = false } = {}) {
+  const isOpen = Boolean(open);
+  elements.inspector.hidden = !isOpen;
+  elements.shell.dataset.inspectorOpen = String(isOpen);
+  elements.inspectorToggle.setAttribute("aria-expanded", String(isOpen));
+  elements.inspectorToggle.textContent = reviewMode
+    ? isOpen ? "Close editor" : "Edit map"
+    : isOpen ? "Close details" : "Explore map";
+  if (focus && isOpen) {
+    elements.inspector.querySelector("input, button, summary")?.focus();
+  }
 }
 
 const cloneValue = (value) =>
@@ -373,7 +466,8 @@ function reviewEvidenceId() {
 function reviewHistoryState() {
   return {
     graph: cloneValue(currentSnapshot.graph),
-    notes: currentSnapshot.postCall?.notes ?? ""
+    notes: currentSnapshot.postCall?.notes ?? "",
+    annotations: cloneValue(currentSnapshot.postCall?.annotations ?? {})
   };
 }
 
@@ -389,7 +483,8 @@ function applyReviewState(state, { record = true } = {}) {
     graph: cloneValue(state.graph),
     postCall: {
       ...currentSnapshot.postCall,
-      notes: state.notes ?? currentSnapshot.postCall?.notes ?? ""
+      notes: state.notes ?? currentSnapshot.postCall?.notes ?? "",
+      annotations: cloneValue(state.annotations ?? currentSnapshot.postCall?.annotations ?? {})
     }
   };
   reviewDirty = true;
@@ -401,7 +496,8 @@ function applyReviewState(state, { record = true } = {}) {
 function updateReviewGraph(nextGraph) {
   applyReviewState({
     graph: nextGraph,
-    notes: currentSnapshot.postCall?.notes ?? ""
+    notes: currentSnapshot.postCall?.notes ?? "",
+    annotations: currentSnapshot.postCall?.annotations ?? {}
   });
 }
 
@@ -544,8 +640,134 @@ function connectionEditor(node) {
   elements.editorAddConnection.disabled = targets.length === 0;
 }
 
+const TASK_TYPES = ["user", "manual", "service", "script", "business_rule", "send", "receive", "call_activity", "unknown"];
+const BOUNDARY_KINDS = ["organization", "domain", "cloud", "account", "region", "environment", "network", "vpc", "subnet", "cluster", "namespace", "security_zone"];
+
+function referenceOptions(candidates, selected, emptyLabel) {
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  empty.selected = !selected;
+  return [empty, ...candidates.map((candidate) => {
+    const option = document.createElement("option");
+    option.value = candidate.id;
+    option.textContent = candidate.label;
+    option.selected = candidate.id === selected;
+    return option;
+  })];
+}
+
+function scopedFacetValue(values, node) {
+  const scope = node.scope === "desired" ? "desired" : "current";
+  return values?.[scope] ?? (node.scope === "both" ? values?.desired : undefined) ?? "";
+}
+
+function renderDomainNodeFields(node) {
+  const process = activeView === "process";
+  const organization = activeView === "organization";
+  const architecture = activeView === "architecture";
+  elements.editorProcessFields.hidden = !process;
+  elements.editorOrganizationFields.hidden = !organization;
+  elements.editorArchitectureFields.hidden = !architecture;
+  if (process) {
+    const facet = node.facets.process;
+    elements.editorTaskType.replaceChildren(...TASK_TYPES.map((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value.replaceAll("_", " ");
+      option.selected = value === (facet.taskType ?? "unknown");
+      return option;
+    }));
+    const lanes = currentSnapshot.graph.nodes.filter((candidate) =>
+      candidate.id !== node.id && candidate.facets?.process?.kind === "lane");
+    const laneId = scopedFacetValue(facet.placement, node)?.laneNodeId ??
+      facet.placement?.current?.laneNodeId ?? facet.placement?.desired?.laneNodeId ?? "";
+    elements.editorLane.replaceChildren(...referenceOptions(lanes, laneId, "No swimlane"));
+    const pools = currentSnapshot.graph.nodes.filter((candidate) =>
+      candidate.id !== node.id && candidate.facets?.process?.kind === "pool");
+    const poolId = scopedFacetValue(facet.placement, node)?.poolNodeId ??
+      facet.placement?.current?.poolNodeId ?? facet.placement?.desired?.poolNodeId ?? "";
+    elements.editorPool.replaceChildren(...referenceOptions(pools, poolId, "No process pool"));
+    elements.editorPool.closest("label").hidden = facet.kind === "pool";
+  }
+  if (organization) {
+    const facet = node.facets.organization;
+    const units = currentSnapshot.graph.nodes.filter((candidate) =>
+      candidate.id !== node.id && candidate.facets?.organization?.kind === "unit");
+    const unitId = scopedFacetValue(facet.unitNodeIdByScope, node);
+    elements.editorUnit.replaceChildren(...referenceOptions(units, unitId, "No parent unit"));
+    elements.editorPositionStatus.value = scopedFacetValue(facet.positionStatusByScope, node) || "unknown";
+    elements.editorPositionStatus.closest("label").hidden = facet.kind !== "position";
+  }
+  if (architecture) {
+    const facet = node.facets.architecture;
+    const boundaries = currentSnapshot.graph.nodes.filter((candidate) =>
+      candidate.id !== node.id && candidate.facets?.architecture?.kind === "boundary");
+    const boundaryId = scopedFacetValue(facet.parentBoundaryNodeIdByScope, node);
+    elements.editorBoundary.replaceChildren(...referenceOptions(boundaries, boundaryId, "No containing boundary"));
+    elements.editorBoundaryKind.replaceChildren(...BOUNDARY_KINDS.map((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value.replaceAll("_", " ");
+      option.selected = value === (facet.boundaryKind ?? "domain");
+      return option;
+    }));
+    elements.editorBoundaryKind.closest("label").hidden = facet.kind !== "boundary";
+    elements.editorTechnology.value = facet.technology ?? "";
+    elements.editorVendor.value = facet.vendor ?? "";
+    elements.editorProduct.value = facet.product ?? "";
+  }
+}
+
+function edgeKindValues() {
+  if (activeView === "process") return ["sequence", "message", "association"];
+  if (activeView === "organization") return ["primary_report", "secondary_report"];
+  return ["synchronous", "asynchronous", "batch", "stream", "unknown"];
+}
+
+function renderEdgeEditor() {
+  if (!reviewMode || selectedEntityType !== "edge") return false;
+  const edge = currentSnapshot?.graph?.edges?.find((candidate) =>
+    candidate.id === selectedEntityId && candidate.facets?.[activeView]);
+  if (!edge) {
+    elements.edgeEditor.hidden = true;
+    return false;
+  }
+  elements.elementEditor.hidden = true;
+  elements.selection.hidden = true;
+  elements.edgeEditor.hidden = false;
+  const from = currentSnapshot.graph.nodes.find((node) => node.id === edge.from);
+  const to = currentSnapshot.graph.nodes.find((node) => node.id === edge.to);
+  elements.edgeEditorKicker.textContent = `${from?.label ?? edge.from} → ${to?.label ?? edge.to}`;
+  const values = edgeKindValues();
+  const selectedKind = activeView === "architecture"
+    ? edge.facets.architecture.interaction ?? "unknown"
+    : edge.facets[activeView].kind;
+  elements.edgeEditorKind.replaceChildren(...values.map((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value.replaceAll("_", " ");
+    option.selected = value === selectedKind;
+    return option;
+  }));
+  elements.edgeEditorProcessFields.hidden = activeView !== "process";
+  elements.edgeEditorArchitectureFields.hidden = activeView !== "architecture";
+  if (!elements.edgeEditor.contains(document.activeElement)) {
+    elements.edgeEditorLabel.value = edge.label ?? "";
+    elements.edgeEditorCondition.value = edge.facets.process?.condition ?? "";
+    elements.edgeEditorDefault.checked = Boolean(edge.facets.process?.isDefault);
+    elements.edgeEditorProtocol.value = edge.facets.architecture?.protocol ?? "";
+    elements.edgeEditorData.value = edge.facets.architecture?.dataDescription ?? "";
+  }
+  const editable = postCallReviewView(currentSnapshot, savingReview).editable;
+  for (const control of elements.edgeEditor.elements) control.disabled = !editable;
+  return true;
+}
+
 function renderElementEditor() {
   if (!reviewMode) return false;
+  if (renderEdgeEditor()) return true;
+  elements.edgeEditor.hidden = true;
   const node = currentSnapshot?.graph?.nodes?.find(
     (candidate) => candidate.id === selectedEntityId
   );
@@ -585,12 +807,29 @@ function renderElementEditor() {
     );
   }
   connectionEditor(node);
+  renderDomainNodeFields(node);
   for (const control of elements.elementEditor.elements) control.disabled = !editable;
   if (node.provenance === "post_call_editorial") elements.editorCertainty.disabled = true;
   return true;
 }
 
 function inspectorCopy(projection, entityId) {
+  if (selectedEntityType === "edge") {
+    const edge = projection.edges.find((candidate) => candidate.id === entityId);
+    if (!edge) return undefined;
+    const from = projection.nodes.find((node) => node.id === edge.from);
+    const to = projection.nodes.find((node) => node.id === edge.to);
+    const container = document.createElement("div");
+    const heading = document.createElement("h3");
+    heading.textContent = edge.label || edge.semanticType?.replaceAll("_", " ") || "Connection";
+    const route = document.createElement("p");
+    route.textContent = `${from?.label ?? edge.from} → ${to?.label ?? edge.to}`;
+    const state = document.createElement("p");
+    state.className = "inspector-state";
+    state.textContent = `${edge.semanticType ?? "connection"} · ${edge.certainty ?? "asserted"}`;
+    container.append(heading, route, state);
+    return container;
+  }
   const detail = projectionEntityDetail(projection, entityId);
   if (!detail) return undefined;
   const container = document.createElement("div");
@@ -608,6 +847,56 @@ function inspectorCopy(projection, entityId) {
     container.append(pain);
   }
   return container;
+}
+
+function selectedGraphItem() {
+  if (!currentSnapshot || !selectedEntityId) return undefined;
+  const list = selectedEntityType === "edge"
+    ? currentSnapshot.graph.edges
+    : currentSnapshot.graph.nodes;
+  return list.find((item) => item.id === selectedEntityId);
+}
+
+function renderEvidencePanel() {
+  if (!reviewMode) {
+    elements.editorEvidence.hidden = true;
+    return;
+  }
+  const item = selectedGraphItem();
+  if (!item) {
+    elements.editorEvidence.hidden = true;
+    return;
+  }
+  elements.editorEvidence.hidden = false;
+  const evidenceIds = item.evidenceUtteranceIds ?? [];
+  const utterances = evidenceIds
+    .map((id) => currentSnapshot.utterances?.find((utterance) => utterance.id === id))
+    .filter(Boolean);
+  elements.editorEvidenceCount.textContent = `${evidenceIds.length} source${evidenceIds.length === 1 ? "" : "s"}`;
+  const excerpts = utterances.slice(0, 3).map((utterance) => {
+    const row = document.createElement("li");
+    const meta = document.createElement("span");
+    meta.textContent = utterance.participantName;
+    const quote = document.createElement("q");
+    quote.textContent = utterance.text;
+    row.append(meta, quote);
+    return row;
+  });
+  if (excerpts.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "evidence-empty";
+    empty.textContent = item.provenance === "post_call_editorial"
+      ? "Added during review · no meeting excerpt attached."
+      : "No readable source excerpt is available in this review.";
+    excerpts.push(empty);
+  }
+  elements.editorEvidenceExcerpts.replaceChildren(...excerpts);
+  elements.editorDisposition.hidden = false;
+  const annotation = currentSnapshot.postCall?.annotations?.[item.id];
+  if (!elements.editorDisposition.contains(document.activeElement)) {
+    elements.editorDispositionValue.value = annotation?.disposition ?? "accepted";
+    elements.editorItemNote.value = annotation?.note ?? "";
+  }
 }
 
 function renderOutline(projection) {
@@ -697,6 +986,7 @@ function renderActiveMetadata() {
     elements.selection.replaceChildren(hint);
   }
   renderOutline(projection);
+  renderEvidencePanel();
 }
 
 function setZoom(next) {
@@ -741,14 +1031,96 @@ function tabKeyboardNavigation(event) {
   activateView(next, true);
 }
 
+function setQuestionDockOpen(open, { restoreFocus = true } = {}) {
+  questionDockOpen = Boolean(open && questionQueue.length > 0);
+  elements.questionDock.dataset.open = String(questionDockOpen);
+  elements.questionDock.setAttribute("aria-hidden", String(!questionDockOpen));
+  elements.questionDockTrigger.setAttribute("aria-expanded", String(questionDockOpen));
+  if (!restoreFocus) return;
+  requestAnimationFrame(() => {
+    if (questionDockOpen) {
+      const nextQuestion = [...elements.questionDockList.querySelectorAll("input")]
+        .find((input) => !input.checked);
+      (nextQuestion ?? elements.questionDockClose).focus();
+    } else {
+      elements.questionDockTrigger.focus();
+    }
+  });
+}
+
+function renderQuestionProgress() {
+  const asked = questionQueue.filter((question) => question.asked).length;
+  const remaining = questionQueue.length - asked;
+  elements.questionDockProgress.textContent = questionQueue.length === 1
+    ? asked === 1 ? "Asked" : "Not asked yet"
+    : `${asked} of ${questionQueue.length} asked`;
+  elements.questionDockBadge.textContent = remaining > 0 ? String(remaining) : "";
+  elements.questionDockBadge.hidden = remaining === 0;
+  elements.questionDockTrigger.dataset.hasUnasked = String(remaining > 0);
+  elements.questionDockTrigger.setAttribute(
+    "aria-label",
+    remaining > 0
+      ? `Open suggested questions, ${remaining} not yet asked`
+      : "Open suggested questions, all asked"
+  );
+}
+
+function renderQuestionDock() {
+  const hasQuestions = questionQueue.length > 0;
+  elements.questionDockTrigger.hidden = !hasQuestions;
+  elements.questionDock.hidden = !hasQuestions;
+  if (!hasQuestions) {
+    setQuestionDockOpen(false, { restoreFocus: false });
+    elements.questionDockList.replaceChildren();
+    return;
+  }
+  const rows = questionQueue.map((question) => {
+    const item = document.createElement("li");
+    item.dataset.asked = String(question.asked);
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = question.asked;
+    input.dataset.questionId = question.id;
+    const mark = document.createElement("span");
+    mark.className = "question-checkmark";
+    mark.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("span");
+    copy.className = "question-copy";
+    copy.textContent = question.text;
+    input.addEventListener("change", () => {
+      questionQueue = markQuestionAsked(questionQueue, question.id, input.checked);
+      writeQuestionQueue(questionStorage, questionStorageId, questionQueue);
+      renderQuestionDock();
+      requestAnimationFrame(() => {
+        [...elements.questionDockList.querySelectorAll("input")]
+          .find((candidate) => candidate.dataset.questionId === question.id)
+          ?.focus();
+      });
+    });
+    label.append(input, mark, copy);
+    item.append(label);
+    return item;
+  });
+  elements.questionDockList.replaceChildren(...rows);
+  renderQuestionProgress();
+}
+
+function captureSuggestedQuestion(question) {
+  const next = mergeSuggestedQuestion(questionQueue, question);
+  const changed = JSON.stringify(next) !== JSON.stringify(questionQueue);
+  if (!changed) return;
+  questionQueue = next;
+  writeQuestionQueue(questionStorage, questionStorageId, questionQueue);
+  renderQuestionDock();
+}
+
 function renderSnapshot(next) {
   if (!shouldAcceptSnapshot(currentSnapshot, next)) return;
   currentSnapshot = next;
   setStatus(next, streamConnectionState);
   elements.topic.textContent = next.graph?.topic?.label || "Business discovery in progress";
-  const question = next.graph?.suggestedQuestion?.text;
-  elements.followUp.hidden = !question;
-  elements.followUpText.textContent = question || "";
+  captureSuggestedQuestion(next.graph?.suggestedQuestion?.text);
   coordinator.offer(next, scopes);
   renderReviewChrome();
   if (next.status === "error") stopStream?.();
@@ -768,6 +1140,25 @@ for (const button of elements.scopes) {
   });
 }
 elements.search.addEventListener("input", renderActiveMetadata);
+elements.questionDockTrigger.addEventListener("click", () => {
+  setQuestionDockOpen(!questionDockOpen);
+});
+elements.questionDockClose.addEventListener("click", () => {
+  setQuestionDockOpen(false);
+});
+document.addEventListener("click", (event) => {
+  if (
+    !questionDockOpen ||
+    elements.questionDock.contains(event.target) ||
+    elements.questionDockTrigger.contains(event.target)
+  ) return;
+  setQuestionDockOpen(false, { restoreFocus: false });
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !questionDockOpen) return;
+  event.preventDefault();
+  setQuestionDockOpen(false);
+});
 elements.zoomIn.addEventListener("click", () => setZoom(zoom[activeView] + 0.15));
 elements.zoomOut.addEventListener("click", () => setZoom(zoom[activeView] - 0.15));
 elements.zoomFit.addEventListener("click", () => setZoom(1));
@@ -809,6 +1200,104 @@ for (const control of [
 ]) {
   control.addEventListener("change", applyEditorFields);
 }
+
+for (const control of [
+  elements.editorTaskType,
+  elements.editorLane,
+  elements.editorPool,
+  elements.editorPositionStatus,
+  elements.editorUnit,
+  elements.editorBoundary,
+  elements.editorBoundaryKind,
+  elements.editorTechnology,
+  elements.editorVendor,
+  elements.editorProduct
+]) {
+  control.addEventListener("change", () => {
+    if (!selectedEntityId || selectedEntityType !== "node" || !currentSnapshot) return;
+    try {
+      updateReviewGraph(updateGraphNode(currentSnapshot.graph, selectedEntityId, activeView, {
+        taskType: elements.editorTaskType.value,
+        laneNodeId: elements.editorLane.value,
+        poolNodeId: elements.editorPool.value,
+        positionStatus: elements.editorPositionStatus.value,
+        unitNodeId: elements.editorUnit.value,
+        parentBoundaryNodeId: elements.editorBoundary.value,
+        boundaryKind: elements.editorBoundaryKind.value,
+        technology: elements.editorTechnology.value,
+        vendor: elements.editorVendor.value,
+        product: elements.editorProduct.value
+      }));
+    } catch (error) {
+      showRenderError(activeView, error);
+    }
+  });
+}
+
+function applySelectedEdgeFields({ reverse = false } = {}) {
+  if (!selectedEntityId || selectedEntityType !== "edge" || !currentSnapshot) return;
+  try {
+    updateReviewGraph(updateGraphEdge(currentSnapshot.graph, selectedEntityId, activeView, {
+      label: elements.edgeEditorLabel.value,
+      relationKind: activeView === "architecture" ? undefined : elements.edgeEditorKind.value,
+      interaction: activeView === "architecture" ? elements.edgeEditorKind.value : undefined,
+      condition: elements.edgeEditorCondition.value,
+      isDefault: elements.edgeEditorDefault.checked,
+      protocol: elements.edgeEditorProtocol.value,
+      dataDescription: elements.edgeEditorData.value,
+      reverse
+    }));
+  } catch (error) {
+    showRenderError(activeView, error);
+  }
+}
+
+for (const control of [
+  elements.edgeEditorLabel,
+  elements.edgeEditorKind,
+  elements.edgeEditorCondition,
+  elements.edgeEditorDefault,
+  elements.edgeEditorProtocol,
+  elements.edgeEditorData
+]) control.addEventListener("change", () => applySelectedEdgeFields());
+elements.edgeEditorReverse.addEventListener("click", () => applySelectedEdgeFields({ reverse: true }));
+elements.edgeEditorDelete.addEventListener("click", () => {
+  if (!currentSnapshot || selectedEntityType !== "edge" || !selectedEntityId) return;
+  updateReviewGraph(removeGraphEdge(currentSnapshot.graph, selectedEntityId));
+  selectedEntityId = undefined;
+  selectedEntityType = "node";
+  renderActiveMetadata();
+});
+
+function updateItemAnnotation() {
+  const item = selectedGraphItem();
+  if (!item || !currentSnapshot) return;
+  const annotations = cloneValue(currentSnapshot.postCall?.annotations ?? {});
+  const note = elements.editorItemNote.value.trim();
+  elements.editorItemNote.setCustomValidity("");
+  if (elements.editorDispositionValue.value !== "accepted" && !note) {
+    elements.editorItemNote.setCustomValidity("Add a note explaining this review decision.");
+    elements.editorItemNote.reportValidity();
+    elements.editorItemNote.focus();
+    return;
+  }
+  if (!note && elements.editorDispositionValue.value === "accepted") {
+    delete annotations[item.id];
+  } else {
+    annotations[item.id] = {
+      targetType: selectedEntityType,
+      disposition: elements.editorDispositionValue.value,
+      note
+    };
+  }
+  applyReviewState({
+    graph: currentSnapshot.graph,
+    notes: currentSnapshot.postCall?.notes ?? "",
+    annotations
+  });
+}
+elements.editorDispositionValue.addEventListener("change", updateItemAnnotation);
+elements.editorItemNote.addEventListener("change", updateItemAnnotation);
 
 function applyEditorTextField(field) {
   if (!reviewMode || !selectedEntityId || !currentSnapshot) return;
@@ -881,11 +1370,22 @@ elements.reviewAdd.addEventListener("click", () => {
       reviewEvidenceId()
     );
     selectedEntityId = result.entityId;
+    selectedEntityType = "node";
+    setInspectorOpen(true);
     updateReviewGraph(result.graph);
     requestAnimationFrame(() => elements.editorLabel.focus());
   } catch (error) {
     showRenderError(activeView, error);
   }
+});
+
+elements.inspectorToggle.addEventListener("click", () => {
+  const opening = elements.inspector.hidden;
+  setInspectorOpen(opening, { focus: opening });
+});
+elements.inspectorClose.addEventListener("click", () => {
+  setInspectorOpen(false);
+  elements.inspectorToggle.focus();
 });
 
 elements.reviewUndo.addEventListener("click", () => {
@@ -950,7 +1450,8 @@ elements.reviewSave.addEventListener("click", async () => {
     const saved = await savePostCallReview(sessionId, {
       expectedRevision: currentSnapshot.revision,
       graph: currentSnapshot.graph,
-      notes: currentSnapshot.postCall?.notes ?? ""
+      notes: currentSnapshot.postCall?.notes ?? "",
+      annotations: currentSnapshot.postCall?.annotations ?? {}
     });
     currentSnapshot = saved;
     reviewDirty = false;
@@ -1003,6 +1504,7 @@ async function start() {
   try {
     if (reviewMode) {
       document.body.classList.add("post-call-review");
+      setInspectorOpen(false);
       elements.reviewToolbar.hidden = false;
       elements.reviewNotes.hidden = false;
       elements.reviewHandoff.href = `/handoff/${encodeURIComponent(sessionId)}`;
@@ -1035,5 +1537,6 @@ window.addEventListener("pagehide", () => {
   coordinator.dispose();
 });
 
+renderQuestionDock();
 activateView(activeView);
 start();

@@ -23,6 +23,10 @@ way and where its extension seams are.
 6. [Post-call editing and Codex handoff](post-call-codex-handoff.md) — explicit
    review approval, full-snapshot edits, revision-locked package publication,
    security boundaries, and the truthful Codex launch contract.
+7. [End-to-end product review](end-to-end-review.md) — the complete journey,
+   issue register, repairs, live validation, and current platform limits.
+8. [Minimal UI review](minimal-ui-review.md) — the final visual-system pass,
+   responsive evidence, interaction health, and removal of demo-like chrome.
 
 ## Current decision
 
@@ -49,5 +53,5 @@ When extending the diagram engine:
 - Keep the previous accepted SVG until a complete replacement passes.
 - Revalidate Mermaid DOM measurement adapters whenever Mermaid is upgraded.
 
-The repository release gate is `npm run check`; CI additionally starts the built
-server and smoke-tests its health and public operator surface.
+The repository release gate is `npm run check`. It includes the built-server
+smoke test used by CI, so local and remote release validation stay aligned.

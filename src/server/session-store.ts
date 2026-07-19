@@ -5,6 +5,7 @@ import {
   type IntegrationState,
   type Participant,
   type ParticipantRole,
+  type PostCallReviewState,
   type SessionSnapshot,
   type SessionStatus,
   type Utterance,
@@ -94,6 +95,7 @@ export type SessionEvent =
       type: "post-call.edited";
       graph: BusinessGraph;
       notes: string;
+      annotations: PostCallReviewState["annotations"];
     }
   | {
       sequence: number;
@@ -126,7 +128,7 @@ const newProjection = (
   participants: [],
   utterances: [],
   graph: emptyBusinessGraph(),
-  postCall: { revision: 0, notes: "" },
+  postCall: { revision: 0, notes: "", annotations: {} },
   recall: { status: "idle" },
   codex: { status: "idle" },
   processing: {
@@ -172,7 +174,7 @@ const invalidateAnalysisForRoleChange = (snapshot: SessionSnapshot): void => {
       (utterance) => utterance.finalized
     ).length
   };
-  snapshot.postCall = { revision: 0, notes: "" };
+  snapshot.postCall = { revision: 0, notes: "", annotations: {} };
   if (snapshot.status === "analyzing") snapshot.status = "listening";
 };
 
@@ -317,6 +319,7 @@ const applySessionEvent = (
       snapshot.postCall = {
         revision: snapshot.postCall.revision + 1,
         notes: event.notes,
+        annotations: event.annotations,
         lastEditedAt: event.occurredAt,
         approvedAt: event.occurredAt,
         approvedGraphRevision: snapshot.revision
@@ -332,7 +335,7 @@ const applySessionEvent = (
       );
       snapshot.utterances = [];
       snapshot.graph = emptyBusinessGraph();
-      snapshot.postCall = { revision: 0, notes: "" };
+      snapshot.postCall = { revision: 0, notes: "", annotations: {} };
       snapshot.revision = 0;
       snapshot.codex = { status: "idle" };
       snapshot.analysis = { status: "idle", pendingUtteranceCount: 0 };
@@ -518,7 +521,8 @@ export class SessionStore {
     id: string,
     expectedRevision: number,
     graph: BusinessGraph,
-    notes: string
+    notes: string,
+    annotations: PostCallReviewState["annotations"] = {}
   ): SessionSnapshot {
     const current = this.getRequired(id);
     if (current.status !== "ended") {
@@ -534,7 +538,12 @@ export class SessionStore {
     if (current.revision !== expectedRevision) {
       throw new SessionRevisionConflictError(expectedRevision, current.revision);
     }
-    return this.append(id, { type: "post-call.edited", graph, notes });
+    return this.append(id, {
+      type: "post-call.edited",
+      graph,
+      notes,
+      annotations
+    });
   }
 
   resetContext(id: string): SessionSnapshot {

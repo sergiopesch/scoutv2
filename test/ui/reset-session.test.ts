@@ -44,4 +44,16 @@ describe("resetSession", () => {
     expect(html).toContain("existing Recall bot and meeting connection stay");
     expect(html).toContain('aria-live="polite"');
   });
+
+  it("keeps suggested questions behind the same minimal checklist used by the canvas", async () => {
+    const [html, source] = await Promise.all([
+      readFile(new URL("../../public/operator.html", import.meta.url), "utf8"),
+      readFile(new URL("../../public/js/operator.js", import.meta.url), "utf8")
+    ]);
+
+    expect(html).toContain('id="operator-question-trigger"');
+    expect(html).toContain('id="operator-question-dock"');
+    expect(html).not.toContain("Question worth asking next");
+    expect(source).toContain("markQuestionAsked(questionQueue, question.id, input.checked)");
+  });
 });

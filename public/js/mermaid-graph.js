@@ -81,7 +81,7 @@ function linkPresentation(state) {
     default:
       return {
         connector: "-.->",
-        style: "stroke:#8A8C91,stroke-width:2px,stroke-dasharray:2 5"
+        style: "stroke:#62656C,stroke-width:2px,stroke-dasharray:2 5"
       };
   }
 }

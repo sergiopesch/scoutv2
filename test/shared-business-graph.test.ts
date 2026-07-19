@@ -563,7 +563,7 @@ describe("multi-view BusinessGraph foundation", () => {
       participants: [],
       utterances: [],
       graph,
-      postCall: { revision: 0, notes: "" },
+      postCall: { revision: 0, notes: "", annotations: {} },
       recall: { status: "active", botId: "private-bot" },
       codex: { status: "active", threadId: "private-thread" },
       processing: { paused: false, changedAt: 1, incomingTranscriptPolicy: "discard" },

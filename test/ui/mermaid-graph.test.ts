@@ -97,7 +97,7 @@ describe("businessGraphToMermaid", () => {
     expect(output).toContain("linkStyle 0 stroke:#101115,stroke-width:2px");
     expect(output).toContain("linkStyle 1 stroke:#101115,stroke-width:4px");
     expect(output).toContain("linkStyle 2 stroke:#62656C,stroke-width:2px,stroke-dasharray:7 4");
-    expect(output).toContain("linkStyle 3 stroke:#8A8C91,stroke-width:2px,stroke-dasharray:2 5");
+    expect(output).toContain("linkStyle 3 stroke:#62656C,stroke-width:2px,stroke-dasharray:2 5");
   });
 
   it("omits edges whose endpoints do not exist", () => {

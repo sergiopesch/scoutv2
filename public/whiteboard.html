@@ -10,15 +10,9 @@
     <main class="whiteboard-shell">
       <header class="whiteboard-header">
         <div class="whiteboard-brand">
-          <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-            <rect x="4" y="4" width="92" height="92" rx="21" fill="#fafaf7" stroke="#ecece7" />
-            <circle cx="50" cy="50" r="31" fill="#17181c" />
-            <path d="M79 27C74 41 60 42 51 48C43 53 47 59 43 65C38 71 30 73 21 80" fill="none" stroke="#fafaf7" stroke-width="12" />
-            <circle cx="50" cy="56" r="7" fill="#fafaf7" />
-            <circle cx="50" cy="56" r="3.5" fill="#17181c" />
-          </svg>
+          <img class="brand-mark" src="/assets/scout-icon.svg" alt="" />
           <div>
-            <p class="eyebrow">Scout · live business map</p>
+            <p class="eyebrow">Scout canvas</p>
             <h1 class="whiteboard-topic" id="topic">Listening for the shape of the business…</h1>
           </div>
         </div>
@@ -38,20 +32,20 @@
           <button type="button" id="review-redo" aria-label="Redo last edit" disabled>Redo</button>
           <button type="button" id="review-add">Add element</button>
           <button type="button" id="review-save" class="review-save" disabled>Save review</button>
-          <a id="review-handoff" class="review-handoff" target="_blank" rel="noopener">Let Codex do its thing <span aria-hidden="true">→</span></a>
+          <a id="review-handoff" class="review-handoff" target="_blank" rel="noopener">Start in Codex</a>
         </div>
       </section>
 
       <section class="view-command-bar" aria-label="Diagram controls">
         <div class="diagram-tabs" role="tablist" aria-label="Business map views">
           <button class="diagram-tab" id="tab-process" role="tab" type="button" aria-selected="true" aria-controls="panel-process" data-view="process">
-            <span>Process</span><span class="tab-update" data-view-update="process" hidden>Updated</span>
+            <span class="tab-copy"><strong>Process</strong></span><span class="tab-update" data-view-update="process" hidden>Updated</span>
           </button>
           <button class="diagram-tab" id="tab-organization" role="tab" type="button" aria-selected="false" aria-controls="panel-organization" data-view="organization" tabindex="-1">
-            <span>Organisation</span><span class="tab-update" data-view-update="organization" hidden>Updated</span>
+            <span class="tab-copy"><strong>Organisation</strong></span><span class="tab-update" data-view-update="organization" hidden>Updated</span>
           </button>
           <button class="diagram-tab" id="tab-architecture" role="tab" type="button" aria-selected="false" aria-controls="panel-architecture" data-view="architecture" tabindex="-1">
-            <span>Architecture</span><span class="tab-update" data-view-update="architecture" hidden>Updated</span>
+            <span class="tab-copy"><strong>Architecture</strong></span><span class="tab-update" data-view-update="architecture" hidden>Updated</span>
           </button>
         </div>
 
@@ -65,6 +59,7 @@
             <button type="button" id="zoom-fit">Fit</button>
             <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
           </div>
+          <button class="inspector-toggle" type="button" id="inspector-toggle" aria-expanded="false" aria-controls="diagram-inspector">Explore map</button>
           <button class="follow-live-control" type="button" id="follow-live" aria-pressed="true">Follow live</button>
         </div>
       </section>
@@ -111,13 +106,16 @@
           </div>
         </div>
 
-        <aside class="diagram-inspector" aria-labelledby="inspector-title">
+        <aside class="diagram-inspector" id="diagram-inspector" aria-labelledby="inspector-title" hidden>
           <div class="inspector-heading">
             <div>
               <p class="eyebrow">Map detail</p>
               <h2 id="inspector-title">View outline</h2>
             </div>
-            <span class="view-revision" id="view-revision">Revision 0</span>
+            <div class="inspector-heading-actions">
+              <span class="view-revision" id="view-revision">Revision 0</span>
+              <button type="button" class="inspector-close" id="inspector-close" aria-label="Close map details">×</button>
+            </div>
           </div>
           <label class="outline-search">
             <span>Find in this view</span>
@@ -159,6 +157,56 @@
                 </select>
               </label>
             </div>
+            <div class="editor-domain-fields" id="editor-process-fields" hidden>
+              <label>
+                <span>Task marker</span>
+                <select id="editor-task-type" name="taskType"></select>
+              </label>
+              <label>
+                <span>Swimlane</span>
+                <select id="editor-lane" name="laneNodeId"></select>
+              </label>
+              <label>
+                <span>Process pool</span>
+                <select id="editor-pool" name="poolNodeId"></select>
+              </label>
+            </div>
+            <div class="editor-domain-fields" id="editor-organization-fields" hidden>
+              <label>
+                <span>Position status</span>
+                <select id="editor-position-status" name="positionStatus">
+                  <option value="filled">Filled</option>
+                  <option value="vacant">Vacant</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </label>
+              <label>
+                <span>Organisation unit</span>
+                <select id="editor-unit" name="unitNodeId"></select>
+              </label>
+            </div>
+            <div class="editor-domain-fields editor-domain-fields-architecture" id="editor-architecture-fields" hidden>
+              <label>
+                <span>System boundary</span>
+                <select id="editor-boundary" name="parentBoundaryNodeId"></select>
+              </label>
+              <label>
+                <span>Boundary type</span>
+                <select id="editor-boundary-kind" name="boundaryKind"></select>
+              </label>
+              <label>
+                <span>Technology</span>
+                <input id="editor-technology" name="technology" maxlength="64" />
+              </label>
+              <label>
+                <span>Vendor</span>
+                <input id="editor-vendor" name="vendor" maxlength="48" />
+              </label>
+              <label>
+                <span>Product</span>
+                <input id="editor-product" name="product" maxlength="64" />
+              </label>
+            </div>
             <div class="editor-connections">
               <div class="section-heading">
                 <span>Connections</span>
@@ -174,25 +222,99 @@
             <p class="editor-delete-confirmation" id="editor-delete-confirmation" aria-live="polite" hidden></p>
             <button type="button" class="editor-delete" id="editor-delete" aria-describedby="editor-delete-confirmation">Delete element</button>
           </form>
-          <div class="view-outline" id="view-outline" aria-label="Accessible diagram outline"></div>
+          <form class="element-editor edge-editor" id="edge-editor" hidden>
+            <p class="editor-kicker" id="edge-editor-kicker">Editing connection</p>
+            <label>
+              <span>Label / intent</span>
+              <input id="edge-editor-label" maxlength="80" />
+            </label>
+            <label>
+              <span>Connection type</span>
+              <select id="edge-editor-kind"></select>
+            </label>
+            <div id="edge-editor-process-fields" class="editor-domain-fields" hidden>
+              <label>
+                <span>Condition</span>
+                <input id="edge-editor-condition" maxlength="80" />
+              </label>
+              <label class="editor-checkbox">
+                <input id="edge-editor-default" type="checkbox" />
+                <span>Default route</span>
+              </label>
+            </div>
+            <div id="edge-editor-architecture-fields" class="editor-domain-fields" hidden>
+              <label>
+                <span>Protocol / channel</span>
+                <input id="edge-editor-protocol" maxlength="48" />
+              </label>
+              <label>
+                <span>Data or intent</span>
+                <input id="edge-editor-data" maxlength="100" />
+              </label>
+            </div>
+            <div class="edge-editor-actions">
+              <button type="button" id="edge-editor-reverse">Reverse direction</button>
+              <button type="button" class="editor-delete" id="edge-editor-delete">Delete connection</button>
+            </div>
+          </form>
+          <section class="evidence-panel" id="editor-evidence" aria-labelledby="editor-evidence-title" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Why Scout believes this</p>
+                <h3 id="editor-evidence-title">Source evidence</h3>
+              </div>
+              <span id="editor-evidence-count">0 sources</span>
+            </div>
+            <ol class="evidence-excerpts" id="editor-evidence-excerpts"></ol>
+            <div class="editor-disposition" id="editor-disposition" hidden>
+              <label>
+                <span>Review decision</span>
+                <select id="editor-disposition-value">
+                  <option value="accepted">Accepted</option>
+                  <option value="amended">Amended</option>
+                  <option value="unsupported">Unsupported</option>
+                </select>
+              </label>
+              <label>
+                <span>Note for this item</span>
+                <textarea id="editor-item-note" maxlength="4000" rows="3" placeholder="What should the delivery team know?"></textarea>
+              </label>
+            </div>
+          </section>
+          <details class="review-notes" id="review-notes" hidden>
+            <summary>Map notes</summary>
+            <div class="review-notes-fields">
+              <label for="review-topic">
+                <span>Map title</span>
+                <input id="review-topic" maxlength="100" />
+              </label>
+              <label class="review-notes-field" for="review-notes-text">
+                <span>Decisions, corrections and context</span>
+                <textarea id="review-notes-text" maxlength="50000" rows="5" placeholder="Add context Codex should carry forward."></textarea>
+              </label>
+            </div>
+          </details>
+          <details class="outline-disclosure">
+            <summary>Diagram outline</summary>
+            <div class="view-outline" id="view-outline" aria-label="Accessible diagram outline"></div>
+          </details>
         </aside>
       </section>
 
       <footer class="whiteboard-footer">
-        <section class="review-notes" id="review-notes" hidden>
-          <div>
-            <p class="eyebrow">Human-curated context</p>
-            <label for="review-topic">Map title</label>
-            <input id="review-topic" maxlength="100" />
-          </div>
-          <label class="review-notes-field" for="review-notes-text">
-            <span>Post-call notes and corrections</span>
-            <textarea id="review-notes-text" maxlength="50000" rows="4" placeholder="Add decisions, corrections, constraints and Scout follow-ups. The original transcript remains immutable."></textarea>
-          </label>
-        </section>
-        <div class="follow-up" id="follow-up" hidden>
-          <p class="eyebrow">Question worth asking next</p>
-          <p id="follow-up-text"></p>
+        <div class="question-dock-anchor">
+          <button
+            class="question-dock-trigger"
+            id="question-dock-trigger"
+            type="button"
+            aria-label="Open suggested questions"
+            aria-controls="question-dock"
+            aria-expanded="false"
+            hidden
+          >
+            <span aria-hidden="true">?</span>
+            <span class="question-dock-badge" id="question-dock-badge" aria-hidden="true"></span>
+          </button>
         </div>
         <details class="legend">
           <summary>View key</summary>
@@ -205,6 +327,27 @@
           </div>
         </details>
       </footer>
+
+      <section
+        class="question-dock"
+        id="question-dock"
+        role="dialog"
+        aria-labelledby="question-dock-title"
+        aria-hidden="true"
+        data-open="false"
+        hidden
+      >
+        <div class="question-dock-handle" aria-hidden="true"></div>
+        <header class="question-dock-header">
+          <div>
+            <p class="eyebrow">Conversation prompts</p>
+            <h2 id="question-dock-title">Worth asking</h2>
+          </div>
+          <button type="button" id="question-dock-close" aria-label="Close suggested questions">×</button>
+        </header>
+        <ul class="question-dock-list" id="question-dock-list"></ul>
+        <p class="question-dock-progress" id="question-dock-progress" aria-live="polite"></p>
+      </section>
     </main>
     <script type="module" src="/js/whiteboard.js"></script>
   </body>

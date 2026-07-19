@@ -14,13 +14,7 @@
     <main class="start-shell">
       <header class="start-brand">
         <a class="brand-lockup start-brand-link" href="/operator/new/" aria-label="Scout home">
-          <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-            <rect x="4" y="4" width="92" height="92" rx="21" fill="#fafaf7" stroke="#ecece7" />
-            <circle cx="50" cy="50" r="31" fill="#17181c" />
-            <path d="M79 27C74 41 60 42 51 48C43 53 47 59 43 65C38 71 30 73 21 80" fill="none" stroke="#fafaf7" stroke-width="12" />
-            <circle cx="50" cy="56" r="7" fill="#fafaf7" />
-            <circle cx="50" cy="56" r="3.5" fill="#17181c" />
-          </svg>
+          <img class="brand-mark" src="/assets/scout-icon.svg" alt="" />
           <span>
             <span class="eyebrow">Live meeting cartography</span>
             <span class="brand-name">Scout</span>
@@ -35,24 +29,24 @@
       <section class="start-hero" aria-labelledby="start-title">
         <div class="start-intro">
           <p class="eyebrow" id="session-eyebrow">New Scout session</p>
-          <h1 id="start-title">Turn the conversation into a living business map.</h1>
+          <h1 id="start-title">Every meeting,<br />mapped.</h1>
           <p class="start-lede" id="start-lede">
             Scout is checking whether this server can join a live meeting or
             run a local rehearsal.
           </p>
 
-          <ol class="start-steps" aria-label="How Scout starts">
+          <ol class="start-steps" aria-label="Scout session path">
             <li>
               <span class="step-number">01</span>
-              <span><strong id="step-one-title">Add the meeting link</strong> <span id="step-one-text">Scout will use it according to the available session mode.</span></span>
+              <span><strong id="step-one-title">Add the meeting link</strong><span id="step-one-text">Scout will use it according to the available session mode.</span></span>
             </li>
             <li>
               <span class="step-number">02</span>
-              <span><strong id="step-two-title">Confirm the session mode</strong> <span id="step-two-text">Live and rehearsal sessions use different meeting behavior.</span></span>
+              <span><strong id="step-two-title">Confirm the session mode</strong><span id="step-two-text">Live and rehearsal sessions use different meeting behavior.</span></span>
             </li>
             <li>
               <span class="step-number">03</span>
-              <span><strong id="step-three-title">Open the working views</strong> <span id="step-three-text">Scout will prepare an operator view and a shared whiteboard.</span></span>
+              <span><strong id="step-three-title">Open the working views</strong><span id="step-three-text">Scout will prepare an operator view and a shared whiteboard.</span></span>
             </li>
           </ol>
         </div>
@@ -68,7 +62,6 @@
               Meeting URL
             </label>
             <div class="meeting-url-control">
-              <span class="link-glyph" aria-hidden="true">↗</span>
               <input
                 id="meeting-url"
                 name="meetingUrl"
@@ -96,7 +89,6 @@
 
             <button class="start-button" id="start-button" type="submit" disabled>
               <span>Checking Scout…</span>
-              <span aria-hidden="true">→</span>
             </button>
           </form>
 
@@ -109,7 +101,6 @@
             hidden
           >
             <div class="ready-heading">
-              <span class="ready-mark" aria-hidden="true">✓</span>
               <div>
                 <p class="eyebrow">Session created</p>
                 <h3 id="session-ready-title">Scout is ready.</h3>
@@ -166,7 +157,6 @@
           </div>
 
             <p class="admission-note" id="admission-note" data-mode="checking">
-            <span class="admission-icon" aria-hidden="true">◎</span>
             <span id="admission-copy">
               Checking whether Scout will join the meeting or create rehearsal views only.
             </span>

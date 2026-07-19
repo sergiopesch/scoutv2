@@ -1,16 +1,16 @@
 import { parseSessionId } from "./session-id.js";
 import {
   loadCodexHandoff,
-  prepareCodexHandoff
+  launchCodexHandoff
 } from "./codex-handoff-api.js";
 
 const elements = {
   topic: document.querySelector("#handoff-topic"),
   status: document.querySelector("#handoff-status"),
   statusDot: document.querySelector("#handoff-status-dot"),
-  outcomes: document.querySelector("#handoff-outcomes"),
   inventory: document.querySelector("#handoff-inventory"),
   revision: document.querySelector("#handoff-revision"),
+  taskCount: document.querySelector("#handoff-task-count"),
   tasks: document.querySelector("#handoff-tasks"),
   transcript: document.querySelector("#handoff-transcript"),
   notes: document.querySelector("#handoff-notes"),
@@ -20,65 +20,58 @@ const elements = {
   error: document.querySelector("#handoff-error"),
   retry: document.querySelector("#handoff-retry"),
   back: document.querySelector("#handoff-back"),
-  copy: document.querySelector("#handoff-copy"),
   download: document.querySelector("#handoff-download"),
-  open: document.querySelector("#handoff-open")
+  open: document.querySelector("#handoff-open"),
+  openStatus: document.querySelector("#handoff-open small"),
+  openLabel: document.querySelector("#handoff-open strong")
 };
 
 const sessionId = parseSessionId();
 let preview;
-let prepared;
-let preparing;
-
-const pluginName = (value) => {
-  const match = String(value).match(/\[@([^\]]+)\]/);
-  return match?.[1] ?? String(value);
-};
-
-function outcomeCard(outcome, index) {
-  const article = document.createElement("article");
-  article.className = "outcome-card";
-  const number = document.createElement("span");
-  number.textContent = String(index + 1).padStart(2, "0");
-  const title = document.createElement("h2");
-  title.textContent = outcome.title;
-  const deliverable = document.createElement("p");
-  deliverable.textContent = outcome.deliverable;
-  const guardrail = document.createElement("small");
-  guardrail.textContent = outcome.guardrail;
-  article.append(number, title, deliverable, guardrail);
-  return article;
-}
+let launched;
+let launching;
 
 function inventoryItem(name, detail) {
   const item = document.createElement("article");
   item.className = "inventory-item";
-  const mark = document.createElement("span");
-  mark.textContent = "✓";
   const copy = document.createElement("div");
   const heading = document.createElement("h3");
   heading.textContent = name;
   const paragraph = document.createElement("p");
   paragraph.textContent = detail;
   copy.append(heading, paragraph);
-  item.append(mark, copy);
+  item.append(copy);
   return item;
 }
 
-function taskRow(task) {
-  const row = document.createElement("tr");
-  for (const value of [
-    task.title,
-    task.model,
-    task.reasoning,
-    task.plugins.map(pluginName).join(", ") || "None",
-    task.dependsOn.join(", ") || "—"
-  ]) {
-    const cell = document.createElement("td");
-    cell.textContent = value;
-    row.append(cell);
+function taskCard(task, index) {
+  const card = document.createElement("article");
+  card.className = `task-card${index === 0 ? " task-card-lead" : ""}`;
+  const ordinal = document.createElement("span");
+  ordinal.className = "task-ordinal";
+  ordinal.textContent = index === 0 ? "Lead" : String(index).padStart(2, "0");
+  const title = document.createElement("h3");
+  title.textContent = index === 0 ? "Lead task brief" : task.title;
+  const setup = document.createElement("p");
+  setup.className = "task-setup";
+  setup.textContent = index === 0
+    ? "Keeps the delivery coherent and coordinates the approved work tasks."
+    : task.objective.split(/(?<=[.!?])\s/, 1)[0];
+  const meta = document.createElement("div");
+  meta.className = "task-meta";
+  for (const value of [task.model, `${task.reasoning} reasoning`]) {
+    if (!value) continue;
+    const chip = document.createElement("span");
+    chip.textContent = value;
+    meta.append(chip);
   }
-  return row;
+  const execution = document.createElement("details");
+  execution.className = "task-execution";
+  const executionSummary = document.createElement("summary");
+  executionSummary.textContent = "Execution details";
+  execution.append(executionSummary, meta);
+  card.append(ordinal, title, setup, execution);
+  return card;
 }
 
 function render(result) {
@@ -90,23 +83,25 @@ function render(result) {
   elements.topic.textContent = handoff.topic;
   elements.statusDot.dataset.state = result.ready ? "ended" : "waiting";
   elements.status.textContent = "Approved package";
-  elements.outcomes.replaceChildren(
-    ...handoff.outcomes.map(outcomeCard)
-  );
+  document.body.dataset.handoffState = "ready";
+  const specialistCount = handoff.orchestration.tasks.length;
+  elements.taskCount.textContent = `${specialistCount} specialist ${specialistCount === 1 ? "task" : "tasks"}`;
   elements.revision.textContent = `Graph r${handoff.diagrams.graphRevision} · review ${handoff.diagrams.reviewRevision}`;
   const transcriptCount = handoff.evidence.transcript.length;
   const noteLength = handoff.evidence.notes.trim().length;
+  const reviewDecisionCount = Object.keys(handoff.review.annotations ?? {}).length;
   elements.inventory.replaceChildren(
     inventoryItem("Immutable transcript", `${transcriptCount} finalized attributed utterances`),
     inventoryItem("Curated business graph", `${handoff.diagrams.graph.nodes.length} elements · ${handoff.diagrams.graph.edges.length} connections`),
     inventoryItem("Semantic diagram source", "Process, Organisation and Architecture · current and target projections"),
     inventoryItem("Human notes", noteLength ? `${noteLength} reviewed characters` : "No additional notes"),
+    inventoryItem("Review decisions", reviewDecisionCount ? `${reviewDecisionCount} item-level decisions or amendments` : "No item-level amendments"),
     inventoryItem("Open questions", `${handoff.openQuestions.length} explicit gaps or contradictions`),
     inventoryItem("Integrity manifest", "SHA-256 hashes bind every published artifact to this review revision")
   );
   elements.tasks.replaceChildren(
-    taskRow(handoff.orchestration.lead),
-    ...handoff.orchestration.tasks.map(taskRow)
+    taskCard(handoff.orchestration.lead, 0),
+    ...handoff.orchestration.tasks.map((task, index) => taskCard(task, index + 1))
   );
   elements.transcript.replaceChildren(...handoff.evidence.transcript.map((utterance) => {
     const item = document.createElement("li");
@@ -133,7 +128,6 @@ function render(result) {
   elements.download.href = `/api/handoffs/${encodeURIComponent(sessionId)}/download`;
   elements.download.setAttribute("aria-disabled", String(!result.ready));
   elements.download.tabIndex = result.ready ? 0 : -1;
-  elements.copy.disabled = !result.ready;
   elements.open.disabled = !result.ready;
 }
 
@@ -143,66 +137,41 @@ function showError(error, { retry = false } = {}) {
   elements.retry.hidden = !retry;
 }
 
-async function copyText(value) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(value);
-      return;
-    } catch {}
-  }
-  const input = document.createElement("textarea");
-  input.value = value;
-  input.setAttribute("readonly", "");
-  input.style.position = "fixed";
-  input.style.opacity = "0";
-  document.body.append(input);
-  input.select();
-  const copied = document.execCommand("copy");
-  input.remove();
-  if (!copied) throw new Error("The prompt is ready, but Scout could not copy it. Select it from the machine-readable package instead.");
-}
-
-async function ensurePrepared() {
-  if (prepared) return prepared;
-  if (preparing) return preparing;
+async function ensureLaunched() {
+  if (launched) return launched;
+  if (launching) return launching;
   elements.error.hidden = true;
   elements.open.disabled = true;
-  elements.copy.disabled = true;
-  elements.open.textContent = "Preparing local project…";
-  preparing = prepareCodexHandoff(sessionId, {
+  document.body.dataset.handoffState = "launching";
+  elements.openStatus.textContent = "Creating the lead and linked tasks";
+  elements.openLabel.textContent = "Codex is getting to work…";
+  launching = launchCodexHandoff(sessionId, {
     graphRevision: preview.package.diagrams.graphRevision,
     reviewRevision: preview.package.diagrams.reviewRevision
   })
     .then((result) => {
-      prepared = result;
+      launched = result;
       elements.directory.hidden = false;
-      elements.directory.textContent = `Prepared locally: ${result.directory}`;
+      elements.directory.textContent = `Approved context: ${result.directory}`;
+      document.body.dataset.handoffState = "launched";
       return result;
     })
     .finally(() => {
-      preparing = undefined;
+      launching = undefined;
       elements.open.disabled = !preview?.ready;
-      elements.copy.disabled = !preview?.ready;
-      elements.open.textContent = "Open project in Codex →";
+      elements.openStatus.textContent = launched ? "Lead and linked tasks created" : "Creates a lead and linked tasks";
+      elements.openLabel.textContent = launched ? "Codex is underway" : "Let Codex do its thing";
     });
-  return preparing;
+  return launching;
 }
 
 elements.open.addEventListener("click", async () => {
   try {
-    const result = await ensurePrepared();
+    const result = await ensureLaunched();
+    document.body.dataset.handoffState = "launching";
+    elements.openStatus.textContent = "Opening Codex";
+    elements.openLabel.textContent = "Codex is underway";
     globalThis.location.href = result.launchUrl;
-  } catch (error) {
-    showError(error);
-  }
-});
-
-elements.copy.addEventListener("click", async () => {
-  try {
-    const result = await ensurePrepared();
-    await copyText(result.prompt);
-    elements.copy.textContent = "Prompt copied";
-    setTimeout(() => { elements.copy.textContent = "Prepare & copy prompt"; }, 2_000);
   } catch (error) {
     showError(error);
   }
@@ -216,12 +185,14 @@ async function start() {
   elements.back.href = sessionId ? `/review/${encodeURIComponent(sessionId)}` : "/";
   elements.retry.hidden = true;
   if (!sessionId) {
+    document.body.dataset.handoffState = "error";
     showError(new Error("The Codex package URL has no valid session ID."));
     return;
   }
   try {
     render(await loadCodexHandoff(sessionId));
   } catch (error) {
+    document.body.dataset.handoffState = "error";
     showError(error, { retry: true });
   }
 }

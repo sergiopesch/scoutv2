@@ -14,8 +14,11 @@ all sessions and the shutdown path asks active Recall bots to leave.
    persists the meeting thread so it can be reused across analysis turns and
    resumed after a child-process restart; those files contain transcript
    context and must remain readable only by the service account.
-3. Copy the repository to `/opt/scout`, run `npm ci && npm run build`, and keep
-   the working directory at the repository root.
+3. Copy the repository to `/opt/scout`, run `npm ci && npm run check`, and keep
+   the working directory at the repository root. Create
+   `/opt/scout/.scout-handoffs` as the `scout` user with mode `0700`; the
+   systemd sandbox explicitly grants this directory write access so approved
+   Codex handoffs do not require a writable application tree.
 4. Store runtime configuration at `/etc/scout/scout.env` with mode `0600`.
 5. Install `scout.service.example` as a systemd service after adapting paths and
    the service account. Keep its `UMask=0077` and `.codex` write-path controls.
@@ -25,7 +28,25 @@ all sessions and the shutdown path asks active Recall bots to leave.
 
 The proxy must disable buffering for SSE and keep its read timeout above the
 15-second heartbeat interval. Do not configure autoscaling or more than one
-replica.
+replica. Keep `/review/*`, `/handoff/*`, operator APIs, and session creation off
+the public proxy; `/assets/*` is public only so the presentation-safe surface
+can load the Scout mark.
+
+## Release procedure
+
+1. Confirm there are no active meetings in `/metrics`.
+2. Install from the lockfile with the pinned Node and npm versions.
+3. Run `npm run check`; it executes the 316-test suite, typecheck, production
+   build, built-server smoke test, and whitespace validation.
+4. Run `npm audit --omit=dev` and resolve any production dependency finding
+   before deployment.
+5. Replace the application files without replacing `.scout-handoffs/`, then
+   restart the single Scout service.
+6. Verify `/livez`, `/readyz`, and `/metrics` before enabling new sessions.
+
+Roll back by restoring the previous verified application revision and running
+the same health checks. A rollback or restart ends process-local sessions; it
+does not delete prepared handoff directories.
 
 ## Health and deploy gate
 

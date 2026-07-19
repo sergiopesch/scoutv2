@@ -67,6 +67,24 @@ const commonScope = (...entities) => {
   return [...values][0];
 };
 
+const setScopedReference = (facet, field, scope, value) => {
+  const scopes = scope === "both" ? ["current", "desired"] : [scope];
+  const next = { ...(facet[field] ?? {}) };
+  for (const key of scopes) {
+    if (value) next[key] = value;
+    else delete next[key];
+  }
+  if (Object.keys(next).length > 0) facet[field] = next;
+  else delete facet[field];
+};
+
+const setOptionalText = (target, field, value) => {
+  if (typeof value !== "string") return;
+  const clean = value.trim();
+  if (clean) target[field] = clean;
+  else delete target[field];
+};
+
 const baseKindFor = (viewKind) =>
   viewKind === "process" ? "process" : viewKind === "organization" ? "actor" : "system";
 
@@ -134,7 +152,7 @@ export async function loadPostCallReview(sessionId, fetchImpl = fetch) {
 
 export async function savePostCallReview(
   sessionId,
-  { expectedRevision, graph, notes },
+  { expectedRevision, graph, notes, annotations = {} },
   fetchImpl = fetch
 ) {
   const response = await fetchImpl(`/api/reviews/${encodeURIComponent(sessionId)}`, {
@@ -143,7 +161,7 @@ export async function savePostCallReview(
       Accept: "application/json",
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ expectedRevision, graph, notes })
+    body: JSON.stringify({ expectedRevision, graph, notes, annotations })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -302,6 +320,72 @@ export function updateGraphNode(graph, nodeId, viewKind, changes) {
   if (changes.semanticType && node.facets?.[viewKind]) {
     node.facets[viewKind].kind = changes.semanticType;
   }
+  const facet = node.facets?.[viewKind];
+  if (viewKind === "process" && facet) {
+    if (["user", "manual", "service", "script", "business_rule", "send", "receive", "call_activity", "unknown"].includes(changes.taskType)) {
+      facet.taskType = changes.taskType;
+    }
+    if (typeof changes.laneNodeId === "string") {
+      const lane = next.nodes.find((candidate) => candidate.id === changes.laneNodeId);
+      if (changes.laneNodeId && (lane?.facets?.process?.kind !== "lane" || lane.id === node.id)) {
+        throw new Error("Choose a swimlane from this process view.");
+      }
+      const placement = { ...(facet.placement ?? {}) };
+      for (const scope of node.scope === "both" ? ["current", "desired"] : [node.scope]) {
+        placement[scope] = { ...(placement[scope] ?? {}) };
+        if (changes.laneNodeId) placement[scope].laneNodeId = changes.laneNodeId;
+        else delete placement[scope].laneNodeId;
+        if (Object.keys(placement[scope]).length === 0) delete placement[scope];
+      }
+      if (Object.keys(placement).length > 0) facet.placement = placement;
+      else delete facet.placement;
+    }
+    if (typeof changes.poolNodeId === "string") {
+      const pool = next.nodes.find((candidate) => candidate.id === changes.poolNodeId);
+      if (changes.poolNodeId && (pool?.facets?.process?.kind !== "pool" || pool.id === node.id)) {
+        throw new Error("Choose a process pool from this view.");
+      }
+      const placement = { ...(facet.placement ?? {}) };
+      for (const scope of node.scope === "both" ? ["current", "desired"] : [node.scope]) {
+        placement[scope] = { ...(placement[scope] ?? {}) };
+        if (changes.poolNodeId) placement[scope].poolNodeId = changes.poolNodeId;
+        else delete placement[scope].poolNodeId;
+        if (Object.keys(placement[scope]).length === 0) delete placement[scope];
+      }
+      if (Object.keys(placement).length > 0) facet.placement = placement;
+      else delete facet.placement;
+    }
+  }
+  if (viewKind === "organization" && facet) {
+    if (typeof changes.unitNodeId === "string") {
+      const unit = next.nodes.find((candidate) => candidate.id === changes.unitNodeId);
+      if (changes.unitNodeId && (unit?.facets?.organization?.kind !== "unit" || unit.id === node.id)) {
+        throw new Error("Choose an organisation unit from this view.");
+      }
+      setScopedReference(facet, "unitNodeIdByScope", node.scope, changes.unitNodeId);
+    }
+    if (["filled", "vacant", "unknown"].includes(changes.positionStatus)) {
+      if (facet.kind !== "position") delete facet.positionStatusByScope;
+      else setScopedReference(facet, "positionStatusByScope", node.scope, changes.positionStatus);
+    }
+    if (facet.kind !== "position") delete facet.positionStatusByScope;
+  }
+  if (viewKind === "architecture" && facet) {
+    if (typeof changes.parentBoundaryNodeId === "string") {
+      const boundary = next.nodes.find((candidate) => candidate.id === changes.parentBoundaryNodeId);
+      if (changes.parentBoundaryNodeId && (boundary?.facets?.architecture?.kind !== "boundary" || boundary.id === node.id)) {
+        throw new Error("Choose a system boundary from this architecture view.");
+      }
+      setScopedReference(facet, "parentBoundaryNodeIdByScope", node.scope, changes.parentBoundaryNodeId);
+    }
+    for (const field of ["vendor", "product", "technology"]) {
+      setOptionalText(facet, field, changes[field]);
+    }
+    if (facet.kind === "boundary" && ["organization", "domain", "cloud", "account", "region", "environment", "network", "vpc", "subnet", "cluster", "namespace", "security_zone"].includes(changes.boundaryKind)) {
+      facet.boundaryKind = changes.boundaryKind;
+    }
+    if (facet.kind !== "boundary") delete facet.boundaryKind;
+  }
   return next;
 }
 
@@ -372,5 +456,25 @@ export function updateGraphEdge(graph, edgeId, viewKind, changes) {
     if (protocol) edge.facets.architecture.protocol = protocol;
     else delete edge.facets.architecture.protocol;
   }
+  if (viewKind === "architecture" && typeof changes.dataDescription === "string") {
+    const description = changes.dataDescription.trim();
+    if (description) edge.facets.architecture.dataDescription = description;
+    else delete edge.facets.architecture.dataDescription;
+  }
+  if (viewKind === "process" && typeof changes.condition === "string") {
+    const condition = changes.condition.trim();
+    if (condition) edge.facets.process.condition = condition;
+    else delete edge.facets.process.condition;
+  }
+  if (viewKind === "process" && typeof changes.isDefault === "boolean") {
+    if (changes.isDefault) edge.facets.process.isDefault = true;
+    else delete edge.facets.process.isDefault;
+  }
+  if (
+    edge.provenance !== "post_call_editorial" &&
+    ["asserted", "hypothesis", "unknown", "conflicted"].includes(changes.certainty)
+  ) edge.certainty = changes.certainty;
+  if (edge.provenance === "post_call_editorial") edge.certainty = "hypothesis";
+  edge.state = stateFor(edge.scope, edge.certainty);
   return next;
 }

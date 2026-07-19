@@ -23,6 +23,7 @@ export interface ActionView { disabled: boolean; buttonText: string; note: strin
 
 export function isTerminalStatus(status?: string): boolean;
 export function shouldAcceptSnapshot(current: BrowserSnapshot | undefined, incoming: BrowserSnapshot): boolean;
+export function analysisErrorMessage(error?: unknown): string;
 export function sessionStreamView(snapshot?: BrowserSnapshot, connectionState?: string): StatusView;
 export function analysisActionView(snapshot?: BrowserSnapshot, state?: { submitting?: boolean; resetting?: boolean; connectionState?: string }): ActionView;
 export function identitySelectionView(snapshot?: BrowserSnapshot, selection?: { phase?: string }): { state: string; text: string };

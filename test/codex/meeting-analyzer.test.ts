@@ -366,6 +366,12 @@ describe("CodexMeetingAnalyzer", () => {
       "Facet presence is the sole authority for view membership"
     );
     expect(threadStart?.params.baseInstructions).toContain(
+      "Add a process facet to an edge only when both its from and to nodes also have process facets"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Never use a process edge facet for “uses”, “depends on”, data transfer, or integration"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
       "Scope and certainty are independent"
     );
     expect(threadStart?.params.baseInstructions).toContain(

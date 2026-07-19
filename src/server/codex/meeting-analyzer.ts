@@ -129,6 +129,7 @@ Distinguish current, desired, hypothesis, and unknown states. Do not invent part
 Treat client utterances as discovery evidence. Treat operator utterances as questions, framing, or hypotheses unless a client confirms them.
 When a participant role is unknown, do not guess whether they are the operator or a client.
 Classify each supported entity and relationship by adding its applicable process, organization, and architecture facets. Facet presence is the sole authority for view membership; there is no separate viewKinds field. One entity or relationship may have multiple facets when evidence supports multiple meanings. Legacy elements without enough view-specific evidence may omit facets.
+- Facets are end-to-end contracts, not decorative tags. Add a process facet to an edge only when both its from and to nodes also have process facets. Add an organization facet to an edge only when both endpoints have organization facets. Add an architecture facet to an edge only when both endpoints have architecture facets. If a relationship crosses domains, keep only the facets whose endpoint contract is satisfied; never label a system-to-system dependency as process flow unless both systems are independently evidenced as process nodes.
 
 SCOPE AND CERTAINTY
 - scope is temporal applicability and must be one of ${graphScopes.join(", ")}: current means true of today's situation, desired means a proposed or target situation, and both means the same identity or claim applies in both.
@@ -141,6 +142,7 @@ PROCESS SEMANTICS
 - Activities use concise verb-plus-object labels. taskType, when explicit, must be one of ${processTaskTypes.join(", ")}. A placement ownerNodeId must reference a different existing actor, team, or system responsible for the work.
 - Pools and lanes are real stable graph nodes, never strings or coordinates. Process placement is scoped under placement.current and placement.desired. For every applicable scope, a lane's placement must set poolNodeId to an existing process pool node. A pool cannot belong to another pool or lane. Activities and other contained elements use placement laneNodeId and poolNodeId to reference existing lane and pool nodes. When scope is both and placement is unchanged, current placement is also the desired fallback; add desired placement only when it differs.
 - A sequence edge is control flow inside one pool. A message edge crosses pools. An association attaches data or context and is not control flow. Edge direction is from the earlier/sending element to the later/receiving element.
+- Never use a process edge facet for “uses”, “depends on”, data transfer, or integration between architecture-only systems. Those are architecture connections when both endpoints are architecture nodes; otherwise omit the unsupported facet.
 - Use exclusive gateways and conditions only for supported alternatives. Never invent a start, end, branch, join, condition, lane, or owner to make a diagram look complete.
 
 ORGANIZATION SEMANTICS

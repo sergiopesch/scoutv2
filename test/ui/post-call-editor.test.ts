@@ -62,6 +62,8 @@ describe("post-call diagram editor", () => {
         label: "Allocation worker",
         shortLabel: "Allocator",
         semanticType: "worker",
+        technology: "Node.js",
+        vendor: "Internal",
         scope: "current",
         certainty: "asserted"
       }
@@ -87,19 +89,19 @@ describe("post-call diagram editor", () => {
       certainty: "hypothesis",
       provenance: "post_call_editorial",
       evidenceUtteranceIds: [],
-      facets: { architecture: { kind: "worker" } }
+      facets: { architecture: { kind: "worker", technology: "Node.js", vendor: "Internal" } }
     });
     const relabelled = updateGraphEdge(
       connected.graph,
       connected.entityId,
       "architecture",
-      { label: "allocation event", interaction: "asynchronous", protocol: "NATS", reverse: true }
+      { label: "allocation event", interaction: "asynchronous", protocol: "NATS", dataDescription: "Order allocated", reverse: true }
     );
     expect(relabelled.edges[0]).toMatchObject({
       from: added.entityId,
       to: "orders-api",
       label: "allocation event",
-      facets: { architecture: { interaction: "asynchronous", protocol: "NATS" } }
+      facets: { architecture: { interaction: "asynchronous", protocol: "NATS", dataDescription: "Order allocated" } }
     });
   });
 
@@ -208,7 +210,14 @@ describe("post-call diagram editor", () => {
     );
     await savePostCallReview(
       "session-1234567890",
-      { expectedRevision: 4, graph: graph(), notes: "Approved" },
+      {
+        expectedRevision: 4,
+        graph: graph(),
+        notes: "Approved",
+        annotations: {
+          "orders-api": { targetType: "node", disposition: "accepted", note: "Confirmed by owner" }
+        }
+      },
       fetchImpl as typeof fetch
     );
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -218,5 +227,6 @@ describe("post-call diagram editor", () => {
         body: expect.stringContaining('"expectedRevision":4')
       })
     );
+    expect(fetchImpl.mock.calls[0]?.[1]?.body).toContain('"disposition":"accepted"');
   });
 });

@@ -21,6 +21,12 @@ export const VIEW_DEFINITIONS = Object.freeze({
   }
 });
 
+const TARGET_EMPTY_MESSAGES = Object.freeze({
+  process: "No target process has been captured yet.",
+  organization: "No target organisation has been captured yet.",
+  architecture: "No target architecture has been captured yet."
+});
+
 const LEGACY_NODE_VIEWS = Object.freeze({
   actor: ["organization"],
   team: ["organization"],
@@ -240,7 +246,9 @@ export function projectBusinessGraph(graph = {}, viewKind = "process", scope = "
     scope: scope === "desired" ? "desired" : "current",
     title: `${definition.label} · ${String(graph?.topic?.label || "Business discovery")}`,
     description: definition.description,
-    emptyMessage: definition.emptyMessage,
+    emptyMessage: scope === "desired"
+      ? TARGET_EMPTY_MESSAGES[viewKind]
+      : definition.emptyMessage,
     nodes,
     edges,
     groups,

@@ -9,7 +9,7 @@ scout.example.com {
 
 	@whiteboard {
 		method GET
-		path /whiteboard/* /events/whiteboards/* /api/whiteboards/* /whiteboard.html /js/* /styles.css /vendor/mermaid/*
+		path /whiteboard/* /events/whiteboards/* /api/whiteboards/* /whiteboard.html /assets/* /js/* /styles.css /vendor/mermaid/*
 	}
 	reverse_proxy @whiteboard 127.0.0.1:3000 {
 		flush_interval -1

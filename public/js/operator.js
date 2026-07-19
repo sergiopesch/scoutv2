@@ -16,6 +16,14 @@ import {
 } from "./operator-identity.js";
 import { reconcileKeyedChildren } from "./keyed-list.js";
 import {
+  markQuestionAsked,
+  mergeSuggestedQuestion,
+  questionQueueStorageKey,
+  readQuestionQueue,
+  writeQuestionQueue
+} from "./question-dock.js";
+import {
+  analysisErrorMessage,
   analysisActionView,
   identitySelectionView,
   isTerminalStatus,
@@ -24,10 +32,12 @@ import {
 } from "./ui-state.js";
 
 const elements = {
+  shell: document.querySelector(".operator-shell"),
   topic: document.querySelector("#meeting-heading"),
   integrations: document.querySelector("#integrations"),
   participants: document.querySelector("#participants"),
   participantCount: document.querySelector("#participant-count"),
+  identityCard: document.querySelector(".identity-card"),
   identityStatus: document.querySelector("#identity-status"),
   transcript: document.querySelector("#transcript"),
   newTranscript: document.querySelector("#new-transcript"),
@@ -40,8 +50,12 @@ const elements = {
   revision: document.querySelector("#revision"),
   pendingCount: document.querySelector("#pending-count"),
   analysisUpdated: document.querySelector("#analysis-updated"),
-  question: document.querySelector("#suggested-question"),
-  evidence: document.querySelector("#question-evidence"),
+  questionDockTrigger: document.querySelector("#operator-question-trigger"),
+  questionDockBadge: document.querySelector("#operator-question-badge"),
+  questionDock: document.querySelector("#operator-question-dock"),
+  questionDockClose: document.querySelector("#operator-question-close"),
+  questionDockList: document.querySelector("#operator-question-list"),
+  questionDockProgress: document.querySelector("#operator-question-progress"),
   analyzeButton: document.querySelector("#analyze-button"),
   resetButton: document.querySelector("#reset-button"),
   resetDialog: document.querySelector("#reset-dialog"),
@@ -58,6 +72,8 @@ const elements = {
 };
 
 const sessionId = parseSessionId();
+const questionStorage = globalThis.sessionStorage;
+const questionStorageId = questionQueueStorageKey(sessionId);
 let snapshot;
 let submitting = false;
 let processingSubmitting = false;
@@ -68,6 +84,8 @@ let operatorSelection;
 let operatorSelectionTimer;
 let renderedTranscriptSignature = "";
 let stopStream;
+let questionQueue = readQuestionQueue(questionStorage, questionStorageId);
+let questionDockOpen = false;
 
 function text(value, fallback = "—") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -108,6 +126,7 @@ function renderIntegrations(next) {
     next.analysis?.status !== "queued" &&
     Number(next.analysis?.pendingUtteranceCount ?? 0) === 0;
   const postCallReady = postCallReviewReady && Boolean(next.postCall?.approvedAt);
+  elements.shell.dataset.postCallReady = String(postCallReviewReady);
   elements.postCallActions.hidden = next.status !== "ended";
   elements.postCallReview.href = `/review/${encodeURIComponent(sessionId)}`;
   elements.postCallHandoff.href = `/handoff/${encodeURIComponent(sessionId)}`;
@@ -120,7 +139,9 @@ function renderIntegrations(next) {
       : "Scout is finishing the last accepted map before editing and handoff become available.";
   elements.integrations.replaceChildren(
     integrationRow("Recall", next.recall),
-    integrationRow("Codex", next.codex),
+    integrationRow("Codex", next.codex?.status === "error"
+      ? { ...next.codex, detail: analysisErrorMessage(next.codex?.detail) }
+      : next.codex),
     integrationRow("Processing", {
       status: next.status === "error"
         ? "error"
@@ -137,9 +158,9 @@ function renderIntegrations(next) {
     }),
     integrationRow("Analysis", {
       status: next.analysis?.status,
-      detail:
-        next.analysis?.lastError ??
-        `${next.analysis?.pendingUtteranceCount ?? 0} utterances pending`
+      detail: next.analysis?.status === "error"
+        ? analysisErrorMessage(next.analysis?.lastError)
+        : `${next.analysis?.pendingUtteranceCount ?? 0} utterances pending`
     })
   );
 }
@@ -224,6 +245,7 @@ function renderParticipants(next) {
       : undefined
   );
   elements.participantCount.textContent = `${participants.length} present`;
+  elements.identityCard.dataset.selected = String(Boolean(next.operatorParticipantId));
   const identityView = identitySelectionView(next, operatorSelection);
   elements.identityStatus.dataset.state = identityView.state;
   elements.identityStatus.textContent = identityView.text;
@@ -309,15 +331,82 @@ function renderTranscript(utterances = []) {
   elements.newTranscript.hidden = update.follow;
 }
 
-function renderEvidence(ids = []) {
-  const chips = ids.map((id) => {
-    const item = document.createElement("li");
-    item.className = "evidence-chip";
-    item.textContent = id;
-    item.title = id;
-    return item;
+function setQuestionDockOpen(open, { restoreFocus = true } = {}) {
+  questionDockOpen = Boolean(open && questionQueue.length > 0);
+  elements.questionDock.dataset.open = String(questionDockOpen);
+  elements.questionDock.setAttribute("aria-hidden", String(!questionDockOpen));
+  elements.questionDockTrigger.setAttribute("aria-expanded", String(questionDockOpen));
+  if (!restoreFocus) return;
+  requestAnimationFrame(() => {
+    if (questionDockOpen) {
+      const nextQuestion = [...elements.questionDockList.querySelectorAll("input")]
+        .find((input) => !input.checked);
+      (nextQuestion ?? elements.questionDockClose).focus();
+    } else {
+      elements.questionDockTrigger.focus();
+    }
   });
-  elements.evidence.replaceChildren(...chips);
+}
+
+function renderQuestionDock() {
+  const hasQuestions = questionQueue.length > 0;
+  elements.questionDockTrigger.hidden = !hasQuestions;
+  elements.questionDock.hidden = !hasQuestions;
+  if (!hasQuestions) {
+    setQuestionDockOpen(false, { restoreFocus: false });
+    elements.questionDockList.replaceChildren();
+    return;
+  }
+  elements.questionDockList.replaceChildren(...questionQueue.map((question) => {
+    const item = document.createElement("li");
+    item.dataset.asked = String(question.asked);
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = question.asked;
+    input.dataset.questionId = question.id;
+    const mark = document.createElement("span");
+    mark.className = "question-checkmark";
+    mark.setAttribute("aria-hidden", "true");
+    const copy = document.createElement("span");
+    copy.className = "question-copy";
+    copy.textContent = question.text;
+    input.addEventListener("change", () => {
+      questionQueue = markQuestionAsked(questionQueue, question.id, input.checked);
+      writeQuestionQueue(questionStorage, questionStorageId, questionQueue);
+      renderQuestionDock();
+      requestAnimationFrame(() => {
+        [...elements.questionDockList.querySelectorAll("input")]
+          .find((candidate) => candidate.dataset.questionId === question.id)
+          ?.focus();
+      });
+    });
+    label.append(input, mark, copy);
+    item.append(label);
+    return item;
+  }));
+  const asked = questionQueue.filter((question) => question.asked).length;
+  const remaining = questionQueue.length - asked;
+  elements.questionDockProgress.textContent = questionQueue.length === 1
+    ? asked === 1 ? "Asked" : "Not asked yet"
+    : `${asked} of ${questionQueue.length} asked`;
+  elements.questionDockBadge.textContent = remaining > 0 ? String(remaining) : "";
+  elements.questionDockBadge.hidden = remaining === 0;
+  elements.questionDockTrigger.dataset.hasUnasked = String(remaining > 0);
+  elements.questionDockTrigger.setAttribute(
+    "aria-label",
+    remaining > 0
+      ? `Open suggested questions, ${remaining} not yet asked`
+      : "Open suggested questions, all asked"
+  );
+}
+
+function captureSuggestedQuestion(question) {
+  const next = mergeSuggestedQuestion(questionQueue, question);
+  if (JSON.stringify(next) === JSON.stringify(questionQueue)) return;
+  questionQueue = next;
+  writeQuestionQueue(questionStorage, questionStorageId, questionQueue);
+  renderQuestionDock();
 }
 
 function render(next, { force = false } = {}) {
@@ -353,12 +442,7 @@ function render(next, { force = false } = {}) {
   elements.analysisUpdated.textContent = next.analysis?.lastCompletedAt
     ? formatClock(next.analysis.lastCompletedAt)
     : "Not analyzed";
-  const question = next.graph?.suggestedQuestion;
-  elements.question.textContent = text(
-    question?.text,
-    "Waiting for enough evidence to suggest a follow-up."
-  );
-  renderEvidence(question?.evidenceUtteranceIds);
+  captureSuggestedQuestion(next.graph?.suggestedQuestion?.text);
   const processingView = processingControlView(
     next.processing,
     processingSubmitting,
@@ -366,6 +450,7 @@ function render(next, { force = false } = {}) {
     next.status
   );
   elements.processingCard.dataset.paused = String(processingView.paused);
+  elements.processingCard.dataset.sessionStatus = next.status;
   elements.processingState.textContent = processingView.statusText;
   elements.processingButton.textContent = processingView.buttonText;
   elements.processingButton.setAttribute(
@@ -537,6 +622,12 @@ async function start() {
   elements.processingButton.addEventListener("click", toggleProcessing);
   elements.resetButton.addEventListener("click", openResetDialog);
   elements.resetConfirm.addEventListener("click", clearConversation);
+  elements.questionDockTrigger.addEventListener("click", () => {
+    setQuestionDockOpen(!questionDockOpen);
+  });
+  elements.questionDockClose.addEventListener("click", () => {
+    setQuestionDockOpen(false);
+  });
   elements.postCallHandoff.addEventListener("click", (event) => {
     if (elements.postCallHandoff.getAttribute("aria-disabled") === "true") {
       event.preventDefault();
@@ -549,6 +640,7 @@ async function start() {
   elements.analyzeButton.disabled = true;
   elements.processingButton.disabled = true;
   elements.resetButton.disabled = true;
+  renderQuestionDock();
   const receiveSnapshot = (next) => {
     elements.error.hidden = true;
     render(next);
@@ -576,6 +668,21 @@ async function start() {
     }
   }
 }
+
+document.addEventListener("click", (event) => {
+  if (
+    !questionDockOpen ||
+    elements.questionDock.contains(event.target) ||
+    elements.questionDockTrigger.contains(event.target)
+  ) return;
+  setQuestionDockOpen(false, { restoreFocus: false });
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !questionDockOpen) return;
+  event.preventDefault();
+  setQuestionDockOpen(false);
+});
 
 window.addEventListener("pagehide", () => {
   stopStream?.();

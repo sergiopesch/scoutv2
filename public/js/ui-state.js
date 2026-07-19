@@ -24,6 +24,10 @@ export function shouldAcceptSnapshot(current, incoming) {
   return Number(incoming?.revision ?? 0) >= Number(current.revision ?? 0);
 }
 
+export function analysisErrorMessage() {
+  return "Scout could not validate the latest map update. Your transcript and last accepted map are safe; retry when ready.";
+}
+
 export function sessionStreamView(snapshot, connectionState = "connecting") {
   if (!snapshot) return { state: "connecting", label: "Loading meeting" };
   const status = snapshot?.status;
@@ -201,7 +205,7 @@ export function analysisActionView(snapshot, state = {}) {
       : snapshot.status === "ended"
         ? "Analyze final utterances"
         : "Analyze now",
-    note: analysis.lastError || (snapshot.status === "ended"
+    note: analysis.status === "error" ? analysisErrorMessage() : (snapshot.status === "ended"
       ? "Processes finalized evidence captured before the meeting ended."
       : "Sends finalized utterances not yet included in the accepted graph.")
   };

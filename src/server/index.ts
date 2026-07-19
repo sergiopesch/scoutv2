@@ -21,6 +21,7 @@ import type {
 } from "./contracts.js";
 import {
   CodexAppServerClient,
+  CodexHandoffLauncher,
   CodexMeetingAnalyzer
 } from "./codex/index.js";
 import {
@@ -33,8 +34,7 @@ import {
 import { SessionStore } from "./session-store.js";
 import { SessionRevisionConflictError } from "./session-store.js";
 import {
-  buildCodexHandoffPackage,
-  writeCodexHandoffProject
+  buildCodexHandoffPackage
 } from "./codex/handoff-package.js";
 import {
   BusinessGraphSchema,
@@ -43,6 +43,7 @@ import {
 } from "../shared/schemas.js";
 import {
   toWhiteboardSnapshot,
+  type PostCallReviewState,
   type SessionSnapshot,
   type WhiteboardSnapshot
 } from "../shared/types.js";
@@ -79,9 +80,45 @@ const PostCallEditSchema = z
   .object({
     expectedRevision: z.number().int().nonnegative(),
     graph: BusinessGraphSchema,
-    notes: z.string().max(50_000)
+    notes: z.string().max(50_000),
+    annotations: z
+      .record(
+        z.string().min(1).max(64),
+        z
+          .object({
+            targetType: z.enum(["node", "edge", "pain", "contradiction"]),
+            disposition: z.enum(["accepted", "amended", "unsupported"]),
+            note: z.string().max(4_000)
+          })
+          .strict()
+      )
+      .default({})
   })
   .strict();
+
+const normalizeReviewAnnotations = (
+  graph: SessionSnapshot["graph"],
+  annotations: PostCallReviewState["annotations"]
+): PostCallReviewState["annotations"] => {
+  const itemIds = {
+    node: new Set(graph.nodes.map((item) => item.id)),
+    edge: new Set(graph.edges.map((item) => item.id)),
+    pain: new Set(graph.pains.map((item) => item.id)),
+    contradiction: new Set(graph.contradictions.map((item) => item.id))
+  };
+  return Object.fromEntries(
+    Object.entries(annotations).flatMap(([id, annotation]) => {
+      const note = annotation.note.trim();
+      if (!note) return [];
+      if (!itemIds[annotation.targetType].has(id)) {
+        throw new Error(
+          `Review annotation ${id} does not match an existing ${annotation.targetType}.`
+        );
+      }
+      return [[id, { ...annotation, note }]];
+    })
+  );
+};
 
 const HandoffPrepareSchema = z
   .object({
@@ -110,6 +147,7 @@ export interface ScoutRuntimeDependencies {
   store?: SessionStore;
   logger?: (record: Record<string, unknown>) => void;
   handoffRootDir?: string;
+  handoffLauncher?: Pick<CodexHandoffLauncher, "launch" | "close">;
 }
 
 export interface ScoutRuntime {
@@ -200,7 +238,7 @@ const postCallBlocker = (snapshot: SessionSnapshot): string | undefined => {
 const handoffBlocker = (snapshot: SessionSnapshot): string | undefined =>
   postCallBlocker(snapshot) ?? (
     snapshot.postCall.approvedAt === undefined
-      ? "Review and approve the final diagrams before preparing the Codex package."
+      ? "Review and approve the final diagrams before launching work in Codex."
       : undefined
   );
 
@@ -257,6 +295,12 @@ export const createScoutRuntime = (
         });
       }
   );
+  const handoffLauncher =
+    dependencies.handoffLauncher ??
+    new CodexHandoffLauncher({
+      clientFactory: () =>
+        new CodexAppServerClient({ command: config.codex.binary })
+    });
   const recall =
     dependencies.recall ??
     (config.recall
@@ -1112,12 +1156,26 @@ export const createScoutRuntime = (
       });
       return;
     }
+    let annotations: PostCallReviewState["annotations"];
+    try {
+      annotations = normalizeReviewAnnotations(
+        parsed.data.graph,
+        parsed.data.annotations
+      );
+    } catch (error) {
+      response.status(422).json({
+        error: "A review annotation does not match the edited graph.",
+        issues: [error instanceof Error ? error.message : String(error)]
+      });
+      return;
+    }
     try {
       const updated = store.editPostCall(
         sessionId,
         parsed.data.expectedRevision,
         parsed.data.graph,
-        parsed.data.notes
+        parsed.data.notes,
+        annotations
       );
       response.setHeader("Cache-Control", "no-store");
       response.json({
@@ -1174,7 +1232,7 @@ export const createScoutRuntime = (
     response.send(`${JSON.stringify(handoff, null, 2)}\n`);
   });
 
-  app.post("/api/handoffs/:sessionId/prepare", async (request, response) => {
+  const launchCodexHandoff: RequestHandler = async (request, response) => {
     const sessionId = routeParam(request.params.sessionId);
     const snapshot = store.get(sessionId);
     if (!snapshot) {
@@ -1189,7 +1247,7 @@ export const createScoutRuntime = (
     const parsed = HandoffPrepareSchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json({
-        error: "Expected graph and review revisions are required before Scout prepares a package."
+        error: "Expected graph and review revisions are required before Scout launches Codex work."
       });
       return;
     }
@@ -1198,17 +1256,19 @@ export const createScoutRuntime = (
       parsed.data.expectedReviewRevision !== snapshot.postCall.revision
     ) {
       response.status(409).json({
-        error: "The reviewed package changed. Reload and inspect the latest revision before preparing Codex."
+        error: "The reviewed package changed. Reload and inspect the latest revision before launching Codex."
       });
       return;
     }
     try {
-      const prepared = await writeCodexHandoffProject(handoffRootDir, snapshot);
+      const prepared = await handoffLauncher.launch(handoffRootDir, snapshot);
       log({
         level: "info",
-        event: "codex.handoff_prepared",
+        event: "codex.handoff_launched",
         sessionId,
         directory: prepared.directory,
+        leadThreadId: prepared.lead.threadId,
+        taskCount: prepared.tasks.length,
         reviewRevision: snapshot.postCall.revision
       });
       response.setHeader("Cache-Control", "no-store");
@@ -1216,15 +1276,19 @@ export const createScoutRuntime = (
     } catch (error) {
       log({
         level: "error",
-        event: "codex.handoff_failed",
+        event: "codex.handoff_launch_failed",
         sessionId,
         detail: error instanceof Error ? error.message : String(error)
       });
       response.status(500).json({
-        error: "Scout could not prepare the local Codex project."
+        error: "Scout could not launch the approved work in Codex."
       });
     }
-  });
+  };
+  app.post("/api/handoffs/:sessionId/launch", launchCodexHandoff);
+  // Kept as a compatibility alias for older Scout clients. Both routes launch
+  // the reviewed revision; neither returns a draft-only deep link.
+  app.post("/api/handoffs/:sessionId/prepare", launchCodexHandoff);
 
   app.get("/api/whiteboards/:whiteboardId", (request, response) => {
     const whiteboardId = routeParam(request.params.whiteboardId);
@@ -1630,7 +1694,8 @@ export const createScoutRuntime = (
         failures,
         await Promise.allSettled([
           ...store.list().map((snapshot) => retryRetirement(snapshot.id)),
-          coordinator.close()
+          coordinator.close(),
+          handoffLauncher.close()
         ])
       );
       if (failures.length > 0) {

@@ -9,9 +9,9 @@ export async function loadCodexHandoff(sessionId, fetchImpl = fetch) {
   return result;
 }
 
-export async function prepareCodexHandoff(sessionId, expected, fetchImpl = fetch) {
+export async function launchCodexHandoff(sessionId, expected, fetchImpl = fetch) {
   const response = await fetchImpl(
-    `/api/handoffs/${encodeURIComponent(sessionId)}/prepare`,
+    `/api/handoffs/${encodeURIComponent(sessionId)}/launch`,
     {
       method: "POST",
       headers: {
@@ -26,14 +26,15 @@ export async function prepareCodexHandoff(sessionId, expected, fetchImpl = fetch
   );
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result.error || `Codex project could not be prepared (${response.status}).`);
+    throw new Error(result.error || `The approved Codex plan could not be started (${response.status}).`);
   }
   if (
     typeof result.directory !== "string" ||
-    typeof result.prompt !== "string" ||
-    !String(result.launchUrl ?? "").startsWith("codex://new?")
+    !String(result.launchUrl ?? "").startsWith("codex://threads/") ||
+    typeof result.lead?.threadId !== "string" ||
+    !Array.isArray(result.tasks)
   ) {
-    throw new Error("Scout returned an incomplete Codex launch package.");
+    throw new Error("Scout returned an incomplete Codex task launch.");
   }
   return result;
 }

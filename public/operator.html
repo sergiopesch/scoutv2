@@ -10,13 +10,7 @@
     <main class="operator-shell">
       <section class="operator-column" aria-labelledby="meeting-heading">
         <div class="brand-lockup">
-          <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-            <rect x="4" y="4" width="92" height="92" rx="21" fill="#fafaf7" stroke="#ecece7" />
-            <circle cx="50" cy="50" r="31" fill="#17181c" />
-            <path d="M79 27C74 41 60 42 51 48C43 53 47 59 43 65C38 71 30 73 21 80" fill="none" stroke="#fafaf7" stroke-width="12" />
-            <circle cx="50" cy="56" r="7" fill="#fafaf7" />
-            <circle cx="50" cy="56" r="3.5" fill="#17181c" />
-          </svg>
+          <img class="brand-mark" src="/assets/scout-icon.svg" alt="" />
           <div>
             <p class="eyebrow">Live meeting cartography</p>
             <p class="brand-name">Scout operator</p>
@@ -84,9 +78,9 @@
 
       <aside class="operator-column analysis-panel" aria-labelledby="analysis-heading">
         <div>
-          <p class="eyebrow">Business graph</p>
+            <p class="eyebrow">Live synthesis</p>
           <div class="section-heading">
-            <h2 id="analysis-heading">Analysis control</h2>
+            <h2 id="analysis-heading">What Scout sees</h2>
             <span class="count" id="analysis-updated">Not analyzed</span>
           </div>
           <div class="revision-card">
@@ -99,23 +93,32 @@
               <div class="revision-number" id="pending-count">0</div>
             </div>
           </div>
-          <div class="question-card">
-            <p class="eyebrow">Suggested next question</p>
-            <blockquote id="suggested-question">Waiting for enough evidence to suggest a follow-up.</blockquote>
-            <ul class="evidence-list" id="question-evidence"></ul>
+          <div class="operator-question-anchor">
+            <button
+              class="question-dock-trigger operator-question-trigger"
+              id="operator-question-trigger"
+              type="button"
+              aria-label="Open suggested questions"
+              aria-controls="operator-question-dock"
+              aria-expanded="false"
+              hidden
+            >
+              <span aria-hidden="true">?</span>
+              <span class="question-dock-badge" id="operator-question-badge" aria-hidden="true"></span>
+            </button>
           </div>
           <p class="inline-error" id="operator-error" role="alert" hidden></p>
         </div>
         <div class="operator-actions">
           <section class="post-call-actions" id="post-call-actions" hidden>
             <p class="eyebrow">Meeting complete</p>
-            <h3>Shape the delivery before Codex builds.</h3>
+            <h3>Refine the map. Then move.</h3>
             <p id="post-call-note">
-              Review the accepted diagrams, add Scout notes, then prepare the complete delivery package.
+              Make the map yours, then carry it into Codex.
             </p>
             <div class="post-call-links">
               <a id="post-call-review" class="post-call-review">Review &amp; edit</a>
-              <a id="post-call-handoff" class="post-call-handoff" target="_blank" rel="noopener">Let Codex do its thing <span aria-hidden="true">→</span></a>
+              <a id="post-call-handoff" class="post-call-handoff" target="_blank" rel="noopener">Start in Codex</a>
             </div>
           </section>
           <button class="analyze-button" id="analyze-button" type="button" disabled>
@@ -131,6 +134,26 @@
         </div>
       </aside>
     </main>
+    <section
+      class="question-dock"
+      id="operator-question-dock"
+      role="dialog"
+      aria-labelledby="operator-question-title"
+      aria-hidden="true"
+      data-open="false"
+      hidden
+    >
+      <div class="question-dock-handle" aria-hidden="true"></div>
+      <header class="question-dock-header">
+        <div>
+          <p class="eyebrow">Conversation prompts</p>
+          <h2 id="operator-question-title">Worth asking</h2>
+        </div>
+        <button type="button" id="operator-question-close" aria-label="Close suggested questions">×</button>
+      </header>
+      <ul class="question-dock-list" id="operator-question-list"></ul>
+      <p class="question-dock-progress" id="operator-question-progress" aria-live="polite"></p>
+    </section>
     <dialog class="reset-dialog" id="reset-dialog" aria-labelledby="reset-title">
       <form method="dialog">
         <p class="eyebrow">Reset test context</p>

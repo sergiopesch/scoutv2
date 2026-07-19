@@ -27,7 +27,16 @@ const endedSession = () => {
   });
   store.acceptGraph(session.id, {
     topic: { id: "orders", label: "Order fulfilment", evidenceUtteranceIds: ["utt-1"] },
-    nodes: [],
+    nodes: [{
+      id: "allocation",
+      kind: "process",
+      label: "Allocate orders",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      confidence: 1,
+      evidenceUtteranceIds: ["utt-1"]
+    }],
     edges: [],
     pains: [],
     contradictions: [],
@@ -37,7 +46,19 @@ const endedSession = () => {
     }
   });
   store.setStatus(session.id, "ended");
-  store.editPostCall(session.id, 1, store.getRequired(session.id).graph, "Prioritize allocation latency.");
+  store.editPostCall(
+    session.id,
+    1,
+    store.getRequired(session.id).graph,
+    "Prioritize allocation latency.",
+    {
+      allocation: {
+        targetType: "node",
+        disposition: "unsupported",
+        note: "The reviewer could not validate this step."
+      }
+    }
+  );
   return store.getRequired(session.id);
 };
 
@@ -48,14 +69,22 @@ describe("Codex handoff package", () => {
     expect(handoff).not.toHaveProperty("sessionId");
     expect(handoff.evidence.transcript[0]).not.toHaveProperty("participantId");
     expect(handoff.diagrams.views).toHaveLength(3);
+    expect(handoff.review.annotations).toEqual({
+      allocation: {
+        targetType: "node",
+        disposition: "unsupported",
+        note: "The reviewer could not validate this step."
+      }
+    });
     expect(handoff.outcomes.map((outcome) => outcome.title)).toEqual([
-      "Customer vision presentation",
-      "Business capability map",
-      "Agentic quick-win MVP",
-      "Roadmap to production"
+      "Process improvement design",
+      "Integrated delivery plan"
     ]);
-    expect(handoff.orchestration.tasks).toHaveLength(4);
-    expect(handoff.orchestration.lead.objective).toContain("pin this task");
+    expect(handoff.orchestration.tasks).toHaveLength(2);
+    expect(handoff.orchestration.lead.objective).toContain("2 evidence-led Codex work tasks");
+    expect(handoff.orchestration.operatingRules.join(" ")).toContain(
+      "do not create runtime subagents"
+    );
     expect(handoff.orchestration.tasks.every((task) => task.model === "gpt-5.6-sol")).toBe(true);
   });
 
@@ -63,6 +92,7 @@ describe("Codex handoff package", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "scout-handoff-test-"));
     const prepared = await writeCodexHandoffProject(root, endedSession());
     expect(prepared.files).toEqual([
+      "README.md",
       "SCOUT_CONTEXT.md",
       "scout-package.json",
       "transcript.md",
@@ -73,9 +103,11 @@ describe("Codex handoff package", () => {
     expect(await readFile(path.join(prepared.directory, "transcript.md"), "utf8"))
       .toContain("Immutable");
     expect(await readFile(path.join(prepared.directory, "SCOUT_CONTEXT.md"), "utf8"))
-      .toContain("Create the four specialist tasks");
+      .toContain("codex-launch.json");
     expect(await readFile(path.join(prepared.directory, "SCOUT_CONTEXT.md"), "utf8"))
       .toContain("untrusted customer data");
+    expect(await readFile(path.join(prepared.directory, "SCOUT_CONTEXT.md"), "utf8"))
+      .toContain("unsupported items remain historical evidence");
     expect(JSON.parse(await readFile(path.join(prepared.directory, "manifest.json"), "utf8")))
       .toMatchObject({ algorithm: "sha256", graphRevision: 2, reviewRevision: 1 });
     expect((await stat(prepared.directory)).mode & 0o777).toBe(0o700);
@@ -83,7 +115,7 @@ describe("Codex handoff package", () => {
     const deepLink = new URL(prepared.launchUrl);
     expect(deepLink.protocol).toBe("codex:");
     expect(deepLink.searchParams.get("path")).toBe(prepared.directory);
-    expect(deepLink.searchParams.get("prompt")).toContain("Pin this lead task");
+    expect(deepLink.searchParams.get("prompt")).toContain("2 named outcomes");
   });
 
   it("encodes paths and prompts without concatenating unsafe query text", () => {

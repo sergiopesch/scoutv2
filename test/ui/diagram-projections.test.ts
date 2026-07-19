@@ -116,6 +116,12 @@ describe("projectBusinessGraph", () => {
     expect(projectBusinessGraph(scoped, "architecture", "desired").nodes.map((node) => node.id)).toEqual(["both", "desired"]);
   });
 
+  it("explains an empty target as an uncaptured future state", () => {
+    const target = projectBusinessGraph(graph, "process", "desired");
+    expect(target.nodes).toEqual([]);
+    expect(projectionSummary(target)).toBe("No target process has been captured yet.");
+  });
+
   it("inherits current scoped placement for both-scope nodes when target has no override", () => {
     const target = projectBusinessGraph({
       topic: { label: "Target" },

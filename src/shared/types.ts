@@ -288,9 +288,27 @@ export interface BusinessGraph {
 export interface PostCallReviewState {
   revision: number;
   notes: string;
+  annotations: Record<string, PostCallReviewAnnotation>;
   lastEditedAt?: number;
   approvedAt?: number;
   approvedGraphRevision?: number;
+}
+
+export type PostCallReviewTargetType =
+  | "node"
+  | "edge"
+  | "pain"
+  | "contradiction";
+
+export type PostCallReviewDisposition =
+  | "accepted"
+  | "amended"
+  | "unsupported";
+
+export interface PostCallReviewAnnotation {
+  targetType: PostCallReviewTargetType;
+  disposition: PostCallReviewDisposition;
+  note: string;
 }
 
 export interface WhiteboardGraphNode {

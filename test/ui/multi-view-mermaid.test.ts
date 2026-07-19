@@ -58,7 +58,8 @@ describe("multi-view Mermaid compilers", () => {
       ], edges: [], pains: [], contradictions: []
     }, "organization", "current");
     const source = compileProjectionCandidates(projection)[0]?.source ?? "";
-    expect(source).toContain(`${renderIdForEntity("finance")} --> ${renderIdForEntity("analyst")}`);
+    expect(source).toContain(`${renderIdForEntity("finance")} --- ${renderIdForEntity("analyst")}`);
+    expect(source).toContain('[["UNIT · Finance"]]');
     expect(source).not.toContain("reports");
   });
 
@@ -76,7 +77,7 @@ describe("multi-view Mermaid compilers", () => {
     const candidates = compileProjectionCandidates(projection);
     expect(candidates[0]?.id).toBe("architecture-native-v1");
     expect(candidates[0]?.source).toContain("architecture-beta");
-    expect(candidates[0]?.source).toContain("(database)[Orders DB]");
+    expect(candidates[0]?.source).toContain("(database)[DATABASE · Orders DB]");
     expect(candidates.map(({ id }) => id)).toContain("architecture-elk-v1");
   });
 
@@ -94,6 +95,46 @@ describe("multi-view Mermaid compilers", () => {
     expect(candidate?.id).toBe("architecture-elk-v1");
     expect(candidate?.source).not.toContain("subgraph");
     expect(candidate?.source).toContain('"themeVariables":{"textColor":"#101115","edgeLabelBackground":"#FAFAF7"}');
+    expect(candidate?.source).toContain("SQL");
+  });
+
+  it("uses distinct BPMN-inspired gateway, event, task and connector semantics", () => {
+    const projection = projectBusinessGraph({
+      topic: { label: "Intake" },
+      nodes: [
+        { id: "start", kind: "process", label: "Request arrives", state: "current", facets: { process: { kind: "start" } } },
+        { id: "task", kind: "process", label: "Review", state: "current", facets: { process: { kind: "activity", taskType: "user" } } },
+        { id: "gate", kind: "decision", label: "Complete?", state: "current", facets: { process: { kind: "parallel_gateway" } } },
+        { id: "end", kind: "process", label: "Closed", state: "current", facets: { process: { kind: "end" } } }
+      ],
+      edges: [
+        { id: "message", from: "start", to: "task", state: "current", facets: { process: { kind: "message" } } },
+        { id: "association", from: "task", to: "gate", state: "current", facets: { process: { kind: "association" } } },
+        { id: "sequence", from: "gate", to: "end", state: "current", facets: { process: { kind: "sequence" } } }
+      ],
+      pains: [], contradictions: []
+    }, "process", "current");
+    const source = compileProjectionCandidates(projection).at(-1)?.source ?? "";
+    expect(source).toContain('(("Request arrives"))');
+    expect(source).toContain('USER · Review');
+    expect(source).toContain('+ · Complete?');
+    expect(source).toContain('((("Closed")))');
+    expect(source).toContain("-.->");
+    expect(source).toContain("-.-");
+  });
+
+  it("avoids native architecture when connection interaction carries semantics", () => {
+    const projection = projectBusinessGraph({
+      topic: { label: "Events" },
+      nodes: [
+        { id: "api", kind: "system", label: "API", state: "current", facets: { architecture: { kind: "api" } } },
+        { id: "bus", kind: "system", label: "Event bus", state: "current", facets: { architecture: { kind: "event_bus" } } }
+      ],
+      edges: [{ id: "publish", from: "api", to: "bus", state: "current", facets: { architecture: { kind: "connection", interaction: "asynchronous" } } }],
+      pains: [], contradictions: []
+    }, "architecture", "current");
+    expect(compileProjectionCandidates(projection)[0]?.id).toBe("architecture-elk-v1");
+    expect(compileProjectionCandidates(projection)[0]?.source).toContain("asynchronous");
   });
 
   it("reports semantic edge coverage so no architecture candidate can silently omit an accepted edge", () => {

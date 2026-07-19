@@ -29,7 +29,8 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
-ReadWritePaths=/tmp /home/scout/.codex
+# Scout writes revision-bound approved handoffs below the repository root.
+ReadWritePaths=/tmp /home/scout/.codex /opt/scout/.scout-handoffs
 
 [Install]
 WantedBy=multi-user.target

@@ -29,6 +29,13 @@ rendered and checked. Current and target states remain distinct, so discovery
 can move from “how it works today” to “what we should build” without mixing the
 two models.
 
+The product surface uses the Scout mark's off-white, charcoal, and neutral-grey
+palette throughout. Process, Organisation, and Architecture are text-first tabs
+without decorative glyphs; editing and evidence controls stay behind explicit
+actions; and suggested questions live in a small `?` checklist instead of a
+persistent text panel. The complete end-to-end UX findings and evidence are in
+the [minimal UI review](docs/research/minimal-ui-review.md).
+
 The animation is a real-time rehearsal through the compiled server, SSE stream,
 semantic projections, Mermaid renderer, layout fallbacks, and geometry gates.
 Recall and Codex are replaced only at their external boundaries by deterministic
@@ -140,28 +147,32 @@ rendering and geometry gates as the live meeting rather than creating a second
 diagram format.
 
 The review surface supports adding, relabelling, retyping, reconnecting,
-reversing, and removing elements; editing connection labels and
-diagram-specific relationship semantics; changing the map title and notes; and
-undo/redo before a complete-snapshot save. New human additions are deliberately
-marked as post-call hypotheses with no customer evidence—they never borrow an
-unrelated transcript citation. Saving is also the explicit approval gate. Until
-someone approves the exact graph revision, the Codex package remains locked.
+reversing, and removing elements; editing diagram-specific node and connection
+semantics; changing the map title and notes; and undo/redo before a
+complete-snapshot save. Selecting an item shows the attributed utterances that
+support it. Reviewers can record that item as accepted, amended, or unsupported
+and attach a durable note. New human additions are deliberately marked as
+post-call hypotheses with no customer evidence—they never borrow an unrelated
+transcript citation. Saving is also the explicit approval gate. Until someone
+approves the exact graph revision, the Codex package remains locked.
 
 After approval, **Let Codex do its thing** opens a reviewable package containing:
 
 - the minimized, immutable finalized transcript;
 - the approved semantic graph and current/target view definitions;
-- human notes, contradictions, open questions, and four required outcomes;
-- a lead prompt plus four model/reasoning/plugin workstream requests; and
+- human notes, per-item review decisions, contradictions, and open questions;
+- map-specific specialist tasks plus an integrating lead task; and
 - an integrity manifest with SHA-256 hashes for every published artifact.
 
-Preparing the handoff writes a private, revision-specific workspace beneath
-`.scout-handoffs/` with directory mode `0700` and file mode `0600`, then opens
-the supported `codex://new?path=...&prompt=...` deep link. Codex receives a draft
-prompt: the user still reviews and sends it to authorize task creation. Pinning,
-separate tasks, model selectors, and plugin use are requested—not silently
-performed—and remain subject to the current Codex surface, availability, and
-user approval. Transcript content is explicitly treated as untrusted evidence,
+Launching the handoff writes a private, revision-specific workspace beneath
+`.scout-handoffs/` with directory mode `0700` and file mode `0600`, then calls
+Codex app-server to create one durable named lead task and the map-specific linked
+work threads in the same workspace and session tree. Scout assigns each thread
+an explicit goal, starts its first turn, records the resulting thread and turn
+IDs, and opens the already-created lead thread. Repeated launch requests for the
+same approved revision are coalesced. The current app-server exposes neither a
+native project-create operation nor pinning, so Scout reports those limits
+instead of simulating them. Transcript content is treated as untrusted evidence,
 and raw customer context must not leave the workspace through a plugin or
 network service without separate approval.
 
@@ -174,7 +185,7 @@ boundaries, and test matrix in
 ## Surfaces
 
 - `/operator/:sessionId` — attributed transcript, participants, integration
-  health, revision state, suggested follow-up, and manual analysis control.
+  health, revision state, suggested-question checklist, and analysis control.
 - `/whiteboard/:whiteboardId` — presentation-safe multi-view map for screen
   sharing. The opaque public ID is returned when the session is created.
 - `/review/:sessionId` — terminal-session diagram and notes editor with explicit
@@ -290,10 +301,11 @@ curl -X POST http://127.0.0.1:3000/api/sessions \
 The response contains the `operatorUrl` and `whiteboardUrl`. Admit the Scout bot
 when it appears in the call, then share the whiteboard URL in a browser window.
 
-## No-Recall rehearsal
+## No-Recall workspace mode
 
-The development ingest route makes the full Codex and UI loop demoable before
-Recall credentials are ready:
+The development ingest route makes the full Codex and UI loop available before
+Recall credentials are ready. The UI calls this **workspace mode** and states
+that no meeting participant will be created:
 
 ```text
 SCOUT_ALLOW_DEV_INGEST=true
@@ -355,18 +367,19 @@ curl -X POST http://127.0.0.1:3000/api/sessions/SESSION_ID/analyze
 ## Verification
 
 ```bash
-npm test
-npm run typecheck
-npm run build
-git diff --check
+npm run check
+npm audit --omit=dev
 ```
 
-`npm run check` runs the same local sequence. CI also starts the built artifact
-and exercises `/livez` before accepting a change.
+`npm run check` runs tests, typecheck, the production build, a built-server smoke
+test against `/livez`, `/metrics`, and the start surface, then whitespace
+validation. CI runs the same command from `npm ci` and audits production
+dependencies.
 
-The 278-test suite covers snapshot coordination, runtime routing, Recall
+The current 316-test suite covers snapshot coordination, runtime routing, Recall
 normalization and signature checks, Codex JSON-RPC/structured output handling,
 session storage, canonical multi-view graph semantics, deterministic Mermaid
 compilation, geometry gates, render supersession, focus restoration, role
-correction, dependency failure recovery, SSE draining, and terminal meeting
+correction, evidence-aware editing, question persistence, linked Codex handoff
+launches, dependency failure recovery, SSE draining, and terminal meeting
 interleavings.

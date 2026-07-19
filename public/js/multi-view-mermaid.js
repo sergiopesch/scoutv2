@@ -44,7 +44,7 @@ const presentationClass = (item) => {
 };
 
 const labelOf = (node, prefix = "") => escapeMermaidLabel(
-  `${prefix}${String(node?.shortLabel ?? node?.label ?? node?.title ?? node?.name ?? "Untitled")}`,
+  `${node?.certainty && node.certainty !== "asserted" ? "? " : ""}${prefix}${String(node?.shortLabel ?? node?.label ?? node?.title ?? node?.name ?? "Untitled")}`,
   "Untitled"
 );
 
@@ -61,16 +61,25 @@ function nodeShape(node, id, viewKind) {
   const type = typeOf(node);
   const label = labelOf(node, node?.positionStatus === "vacant" || type === "vacancy" ? "VACANT · " : "");
   if (viewKind === "process") {
-    if (["start", "end", "event"].includes(type)) return `${id}(["${label}"])`;
-    if (type.includes("gateway") || type === "decision") return `${id}{"${label}"}`;
+    if (type === "start") return `${id}(("${label}"))`;
+    if (type === "end") return `${id}((("${label}")))`;
+    if (["intermediate_event", "event"].includes(type)) return `${id}(("EVENT · ${label}"))`;
+    if (type === "exclusive_gateway" || type === "decision") return `${id}{"× · ${label}"}`;
+    if (type === "parallel_gateway") return `${id}{"+ · ${label}"}`;
+    if (type === "inclusive_gateway") return `${id}{"○ · ${label}"}`;
+    if (type === "event_gateway") return `${id}{"◇ · ${label}"}`;
     if (["document", "artifact"].includes(type)) return `${id}[/"${label}"/]`;
     if (type === "data_store") return `${id}[("${label}")]`;
     if (type === "subprocess") return `${id}[["${label}"]]`;
-    return `${id}["${label}"]`;
+    const taskMarker = node?.taskType && node.taskType !== "unknown"
+      ? `${String(node.taskType).replaceAll("_", " ").toUpperCase()} · `
+      : "";
+    return `${id}["${taskMarker}${label}"]`;
   }
   if (viewKind === "organization") {
-    if (["org_unit", "team", "department"].includes(type)) return `${id}(["${label}"])`;
-    return `${id}["${label}"]`;
+    if (["unit", "org_unit", "team", "department"].includes(type)) return `${id}[["UNIT · ${label}"]]`;
+    if (type === "person") return `${id}(["PERSON · ${label}"])`;
+    return `${id}["POSITION · ${label}"]`;
   }
   if (["database", "data_store"].includes(type)) return `${id}[("${label}")]`;
   if (["queue", "event_bus"].includes(type)) return `${id}[["${label}"]]`;
@@ -86,7 +95,7 @@ function linkStyle(edge, index) {
     case "hypothesis":
       return `  linkStyle ${index} stroke:#62656C,stroke-width:2px,stroke-dasharray:7 4`;
     case "unknown":
-      return `  linkStyle ${index} stroke:#8A8C91,stroke-width:2px,stroke-dasharray:2 5`;
+      return `  linkStyle ${index} stroke:#62656C,stroke-width:2px,stroke-dasharray:2 5`;
     default:
       return `  linkStyle ${index} stroke:#101115,stroke-width:2px`;
   }
@@ -94,6 +103,12 @@ function linkStyle(edge, index) {
 
 function edgeConnector(edge, viewKind) {
   const type = typeOf(edge);
+  if (viewKind === "process") {
+    if (type === "message") return "-.->";
+    if (type === "association") return "-.-";
+    return presentationClass(edge) === "desired" ? "==>" : "-->";
+  }
+  if (viewKind === "organization" && type === "membership") return "---";
   if (viewKind === "organization" && (
     type.includes("secondary") || ["matrix", "functional", "project"].includes(type)
   )) return "-.->";
@@ -108,7 +123,12 @@ function edgeDisplayLabel(edge, viewKind) {
     return edge.label || edge.condition || (edge.isDefault ? "default" : "");
   }
   if (viewKind === "organization") return edge.label || edge.relationshipType;
-  return edge.label || [edge.protocol, edge.dataDescription].filter(Boolean).join(" · ");
+  return [
+    edge.label,
+    !["synchronous", "unknown"].includes(edge.interaction) ? edge.interaction : "",
+    edge.dataDescription,
+    edge.protocol
+  ].filter(Boolean).join(" · ");
 }
 
 function flowchartSource(projection, { layout = "dagre", spacing = "normal" } = {}) {
@@ -246,6 +266,12 @@ function architectureTitle(value) {
     .slice(0, 70) || "Untitled";
 }
 
+function architectureElementTitle(node) {
+  const type = typeOf(node).replaceAll("_", " ").toUpperCase();
+  const detail = [node.technology, node.product].filter(Boolean).join(" / ");
+  return architectureTitle(`${type} · ${node.label ?? node.title}${detail ? ` · ${detail}` : ""}`);
+}
+
 function architectureIcon(node) {
   const type = typeOf(node);
   if (["database", "data_store"].includes(type)) return "database";
@@ -292,7 +318,7 @@ function architectureSource(projection) {
   for (const node of nodes) {
     const parentId = groupIds.get(String(node.parentBoundaryNodeId ?? node.boundaryId ?? node.groupId ?? node.parentId ?? ""));
     lines.push(
-      `  service ${ids.get(idOf(node))}(${architectureIcon(node)})[${architectureTitle(node.label ?? node.title)}]${parentId ? ` in ${parentId}` : ""}`
+      `  service ${ids.get(idOf(node))}(${architectureIcon(node)})[${architectureElementTitle(node)}]${parentId ? ` in ${parentId}` : ""}`
     );
   }
   for (const edge of arrays(projection.edges).slice().sort(sortById)) {
@@ -396,7 +422,12 @@ export function compileProjectionCandidates(projection) {
   const architectureEligible = arrays(projection.nodes).length > 0 &&
     arrays(projection.nodes).length <= 12 &&
     arrays(projection.groups).length <= 4 &&
-    arrays(projection.edges).every((edge) => !edge.label && !edge.protocol && !edge.dataDescription);
+    arrays(projection.edges).every((edge) =>
+      !edge.label &&
+      !edge.protocol &&
+      !edge.dataDescription &&
+      [undefined, "unknown", "synchronous"].includes(edge.interaction)
+    );
   return [
     ...(architectureEligible ? [completeCandidate("architecture-native-v1", architectureSource(projection))] : []),
     completeCandidate("architecture-elk-v1", flowchartSource(projection, { layout: "elk", spacing: "wide" })),
