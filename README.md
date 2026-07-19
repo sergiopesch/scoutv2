@@ -12,6 +12,28 @@
 Scout finds what matters in a live customer conversation. Codex turns that
 approved context into working software.
 
+## Live multi-view mapping
+
+<p align="center">
+  <img
+    src="docs/assets/scout-live-multiview.gif"
+    width="960"
+    alt="Scout building process, organisation, and architecture diagrams from a live meeting"
+  />
+</p>
+
+Scout continuously separates one conversation into three evidence-backed views:
+the business process, the organisation that owns it, and the architecture that
+supports it. Each tab retains its last valid diagram while the next revision is
+rendered and checked. Current and target states remain distinct, so discovery
+can move from “how it works today” to “what we should build” without mixing the
+two models.
+
+The animation is a real-time rehearsal through the compiled server, SSE stream,
+semantic projections, Mermaid renderer, layout fallbacks, and geometry gates.
+Recall and Codex are replaced only at their external boundaries by deterministic
+test adapters; no browser graph or SVG is injected.
+
 ## The one-minute deck
 
 **[Open the Scout market vision presentation →](Presentation/index.html)**
@@ -64,20 +86,38 @@ speaker-attributed finalized transcript events from Recall.ai. For each meeting:
 3. Codex receives the accepted graph plus only the new finalized utterances.
 4. Codex returns a complete `BusinessGraph`; Scout validates and atomically
    accepts it as the next revision.
-5. The browser receives the revision over SSE and completely rerenders the
-   Mermaid workflow, keeping the previous SVG visible until the new one succeeds.
+5. The browser receives the revision over SSE, independently projects Process,
+   Organisation, and Architecture views, then completely rerenders each Mermaid
+   diagram while keeping its previous SVG visible until the replacement passes.
 
 The hackathon MVP deliberately uses a full `BusinessGraph` snapshot per analysis
 turn. The browser replaces the previous graph and rerenders Mermaid rather than
 trying to merge incremental graph patches.
 
+### Diagram reliability model
+
+- The model returns business semantics, never Mermaid syntax or coordinates.
+- Stable graph IDs preserve identity between complete revisions.
+- Process, organisation, and architecture compilers apply diagram-specific
+  shapes, relationships, containment, and layout profiles.
+- The active tab renders first; inactive views update during idle time.
+- Candidate layouts fail closed when semantic edges disappear, nodes overlap,
+  edges cross nodes or titles, labels clip, or required entities cannot be
+  measured.
+- A failed candidate automatically falls back to another deterministic profile.
+  If all profiles fail, Scout keeps the last readable SVG.
+
+The implemented design, quality gate, and longer-term renderer evaluation are
+indexed in [the diagram engineering notes](docs/research/README.md).
+
 ## Surfaces
 
 - `/operator/:sessionId` — attributed transcript, participants, integration
   health, revision state, suggested follow-up, and manual analysis control.
-- `/whiteboard/:sessionId` — presentation-safe workflow map for screen sharing.
+- `/whiteboard/:whiteboardId` — presentation-safe multi-view map for screen
+  sharing. The opaque public ID is returned when the session is created.
 - `/events/:sessionId` — full operator session snapshots over SSE.
-- `/events/whiteboards/:sessionId` — presentation-safe whiteboard projections
+- `/events/whiteboards/:whiteboardId` — presentation-safe whiteboard projections
   over SSE, without transcript or integration internals.
 
 On the operator page, the builder selects **This is me** beside their Recall
@@ -259,7 +299,9 @@ git diff --check
 `npm run check` runs the same local sequence. CI also starts the built artifact
 and exercises `/livez` before accepting a change.
 
-The test suite covers snapshot coordination, runtime routing, Recall
+The 278-test suite covers snapshot coordination, runtime routing, Recall
 normalization and signature checks, Codex JSON-RPC/structured output handling,
-session storage, deterministic Mermaid generation, role correction, dependency
-failure recovery, SSE draining, and terminal meeting interleavings.
+session storage, canonical multi-view graph semantics, deterministic Mermaid
+compilation, geometry gates, render supersession, focus restoration, role
+correction, dependency failure recovery, SSE draining, and terminal meeting
+interleavings.

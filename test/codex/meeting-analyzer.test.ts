@@ -210,6 +210,8 @@ const graph: BusinessGraph = {
       kind: "system",
       label: "HubSpot",
       state: "current",
+      scope: "current",
+      certainty: "asserted",
       confidence: 1,
       evidenceUtteranceIds: [utterance.id]
     },
@@ -218,6 +220,8 @@ const graph: BusinessGraph = {
       kind: "artifact",
       label: "Spreadsheet export",
       state: "current",
+      scope: "current",
+      certainty: "asserted",
       confidence: 1,
       evidenceUtteranceIds: [utterance.id]
     }
@@ -229,6 +233,8 @@ const graph: BusinessGraph = {
       to: "spreadsheet",
       kind: "produces",
       state: "current",
+      scope: "current",
+      certainty: "asserted",
       confidence: 1,
       evidenceUtteranceIds: [utterance.id]
     }
@@ -240,6 +246,39 @@ const graph: BusinessGraph = {
     evidenceUtteranceIds: [utterance.id]
   }
 };
+
+const topicOnlyGraph = (
+  evidenceUtteranceId: string,
+  label = "Business discovery"
+): BusinessGraph => ({
+  topic: {
+    id: "discovery",
+    label,
+    evidenceUtteranceIds: [evidenceUtteranceId]
+  },
+  nodes: [],
+  edges: [],
+  pains: [],
+  contradictions: []
+});
+
+const analysisUtterance = (
+  id: string,
+  sequence: number,
+  text: string,
+  participantRole: "customer" | "operator" | "unknown" = "customer"
+) => ({
+  ...utterance,
+  id,
+  sequence,
+  text,
+  participantId:
+    participantRole === "operator" ? "operator-1" : "participant-1",
+  participantName: participantRole === "operator" ? "Morgan" : "Alex",
+  startedAt: sequence * 1_000,
+  endedAt: sequence * 1_000 + 500,
+  participantRole
+});
 
 const analyzeInput = () => ({
   sessionId: "session-1",
@@ -308,6 +347,48 @@ describe("CodexMeetingAnalyzer", () => {
     expect(threadStart?.params.developerInstructions).toContain(
       "untrusted evidence"
     );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Stable IDs represent identity and are immutable"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "reaffirm, refine, supersede, contradict, or no-op"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "A primary_report edge is directed from the subordinate"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Never invent a start, end, branch, join"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "parentBoundaryNodeIdByScope.current"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Facet presence is the sole authority for view membership"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Scope and certainty are independent"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Every returned node, edge, and pain must include both scope and certainty"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "certainty unknown or conflicted requires state unknown"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "placement.current and placement.desired"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Never create a containment edge"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "There is no membership edge"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "unitNodeIdByScope.current"
+    );
+    expect(threadStart?.params.baseInstructions).not.toContain(
+      "include its view in viewKinds"
+    );
 
     const turnStart = client.requests.find(
       (request) => request.method === "turn/start"
@@ -326,6 +407,27 @@ describe("CodexMeetingAnalyzer", () => {
     });
     const outputSchema = turnStart?.params.outputSchema as {
       properties?: {
+        topic?: {
+          properties?: {
+            evidenceUtteranceIds?: { minItems?: number };
+          };
+        };
+        nodes?: {
+          items?: {
+            required?: string[];
+            properties?: {
+              facets?: {
+                anyOf?: Array<{
+                  properties?: {
+                    architecture?: {
+                      anyOf?: Array<{ required?: string[] }>;
+                    };
+                  };
+                }>;
+              };
+            };
+          };
+        };
         edges?: {
           items?: {
             required?: string[];
@@ -334,6 +436,21 @@ describe("CodexMeetingAnalyzer", () => {
       };
     };
     expect(outputSchema.properties?.edges?.items?.required).toContain("label");
+    expect(outputSchema.properties?.nodes?.items?.required).toEqual(
+      expect.arrayContaining([
+        "shortLabel",
+        "aliases",
+        "scope",
+        "certainty",
+        "facets"
+      ])
+    );
+    expect(outputSchema.properties?.nodes?.items?.required).not.toContain(
+      "viewKinds"
+    );
+    expect(
+      outputSchema.properties?.topic?.properties?.evidenceUtteranceIds?.minItems
+    ).toBe(1);
     expect(JSON.stringify(turnStart?.params.input)).toContain(utterance.id);
     expect(JSON.stringify(turnStart?.params.input)).toContain(
       "CURRENT ACCEPTED GRAPH"
@@ -343,12 +460,153 @@ describe("CodexMeetingAnalyzer", () => {
     )?.[0]?.text;
     expect(prompt).toContain('"participantRole":"customer"');
     expect(JSON.stringify(turnStart?.params.input)).toContain(
-      "NEW FINALIZED CUSTOMER EVIDENCE"
+      "NEW FINALIZED UTTERANCES IN CHRONOLOGICAL ORDER"
     );
+    expect(prompt).toContain("CUSTOMER EVIDENCE IDS ALLOWED FOR CITATION");
+    expect(prompt).not.toContain("NEW OPERATOR / INTERVIEWER CONTEXT");
     expect(client.initializeCount).toBe(1);
     expect(client.requests[0]?.method).toBe("mcpServerStatus/list");
     await analyzer.close();
     expect(client.closed).toBe(true);
+  });
+
+  it("preserves transcript chronology and roles while limiting citable IDs to customers", async () => {
+    const operatorQuestion = analysisUtterance(
+      "operator-question",
+      1,
+      "Does Finance approve orders over ten thousand pounds?",
+      "operator"
+    );
+    const customerConfirmation = analysisUtterance(
+      "customer-confirmation",
+      2,
+      "Yes, Finance approves those orders.",
+      "customer"
+    );
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify(
+      topicOnlyGraph(customerConfirmation.id)
+    );
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    await analyzer.analyze({
+      ...analyzeInput(),
+      participants: [
+        ...analyzeInput().participants,
+        { id: "operator-1", name: "Morgan", role: "operator" as const }
+      ],
+      newUtterances: [customerConfirmation, operatorQuestion]
+    });
+
+    const turnStart = client.requests.find(
+      (request) => request.method === "turn/start"
+    );
+    const prompt = (
+      turnStart?.params.input as Array<{ text?: string }> | undefined
+    )?.[0]?.text ?? "";
+    const chronologicalSection = prompt.split(
+      "NEW FINALIZED UTTERANCES IN CHRONOLOGICAL ORDER\n"
+    )[1] ?? "";
+    expect(chronologicalSection.indexOf(operatorQuestion.id)).toBeLessThan(
+      chronologicalSection.indexOf(customerConfirmation.id)
+    );
+    const allowedEvidenceSection = prompt
+      .split("CUSTOMER EVIDENCE IDS ALLOWED FOR CITATION\n")[1]
+      ?.split("\n\nNEW FINALIZED UTTERANCES")[0];
+    expect(allowedEvidenceSection).toContain(customerConfirmation.id);
+    expect(allowedEvidenceSection).not.toContain(operatorQuestion.id);
+    expect(prompt).toContain('"participantRole":"operator"');
+    expect(prompt).toContain('"participantRole":"customer"');
+    await analyzer.close();
+  });
+
+  it("keeps successfully presented customer evidence live after it drops out of the accepted graph", async () => {
+    const firstUtterance = analysisUtterance(
+      "customer-evidence-1",
+      1,
+      "Sales owns the order intake."
+    );
+    const secondUtterance = analysisUtterance(
+      "customer-evidence-2",
+      2,
+      "Today we are focusing on fulfilment."
+    );
+    const thirdUtterance = analysisUtterance(
+      "customer-evidence-3",
+      3,
+      "Continue."
+    );
+    const client = new FakeAnalyzerClient();
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    client.turnResultText = JSON.stringify(topicOnlyGraph(firstUtterance.id));
+    const first = await analyzer.analyze({
+      ...analyzeInput(),
+      newUtterances: [firstUtterance]
+    });
+
+    client.turnResultText = JSON.stringify(topicOnlyGraph(secondUtterance.id));
+    const second = await analyzer.analyze({
+      ...analyzeInput(),
+      threadId: first.threadId,
+      currentGraph: first.graph,
+      newUtterances: [secondUtterance]
+    });
+    expect(second.graph.topic.evidenceUtteranceIds).not.toContain(
+      firstUtterance.id
+    );
+
+    client.turnResultText = JSON.stringify(topicOnlyGraph(firstUtterance.id));
+    await expect(
+      analyzer.analyze({
+        ...analyzeInput(),
+        threadId: first.threadId,
+        currentGraph: second.graph,
+        newUtterances: [thirdUtterance]
+      })
+    ).resolves.toMatchObject({
+      graph: {
+        topic: { evidenceUtteranceIds: [firstUtterance.id] }
+      }
+    });
+    await analyzer.close();
+  });
+
+  it("clears the customer evidence ledger when a meeting session is reset", async () => {
+    const firstUtterance = analysisUtterance(
+      "customer-evidence-before-reset",
+      1,
+      "Sales owns intake."
+    );
+    const acceptedAfterReset = analysisUtterance(
+      "accepted-after-reset",
+      2,
+      "Fulfilment is the current topic."
+    );
+    const newAfterReset = analysisUtterance(
+      "new-after-reset",
+      3,
+      "Continue."
+    );
+    const client = new FakeAnalyzerClient();
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    client.turnResultText = JSON.stringify(topicOnlyGraph(firstUtterance.id));
+    await analyzer.analyze({
+      ...analyzeInput(),
+      newUtterances: [firstUtterance]
+    });
+    await analyzer.resetSession("session-1");
+
+    client.turnResultText = JSON.stringify(topicOnlyGraph(firstUtterance.id));
+    await expect(
+      analyzer.analyze({
+        ...analyzeInput(),
+        currentGraph: topicOnlyGraph(acceptedAfterReset.id),
+        newUtterances: [newAfterReset]
+      })
+    ).rejects.toThrow("returned invalid graph references");
+    await analyzer.close();
   });
 
   it.each([
@@ -479,11 +737,58 @@ describe("CodexMeetingAnalyzer", () => {
     await analyzer.close();
   });
 
+  it("rejects the evidence-free bootstrap graph as model output", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify(emptyBusinessGraph());
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    await expect(analyzer.analyze(analyzeInput())).rejects.toThrow(
+      "returned an invalid BusinessGraph"
+    );
+    await analyzer.close();
+  });
+
   it("normalizes nullable structured-output optionals before domain validation", async () => {
     const client = new FakeAnalyzerClient();
     client.turnResultText = JSON.stringify({
       ...graph,
-      edges: graph.edges.map((edge) => ({ ...edge, label: null })),
+      nodes: graph.nodes.map((node) => ({
+        ...node,
+        shortLabel: null,
+        aliases: null,
+        scope: "current",
+        certainty: "asserted",
+        facets:
+          node.id === "hubspot"
+            ? {
+                process: null,
+                organization: null,
+                architecture: {
+                  kind: "software_system",
+                  parentBoundaryNodeIdByScope: null,
+                  boundaryKind: null,
+                  vendor: null,
+                  product: "HubSpot",
+                  technology: null
+                }
+              }
+            : {
+                process: null,
+                organization: null,
+                architecture: null
+              }
+      })),
+      edges: graph.edges.map((edge) => ({
+        ...edge,
+        label: null,
+        scope: "current",
+        certainty: "asserted",
+        facets: {
+          process: null,
+          organization: null,
+          architecture: null
+        }
+      })),
       suggestedQuestion: null
     });
     const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
@@ -495,6 +800,16 @@ describe("CodexMeetingAnalyzer", () => {
       }
     });
     expect(result.graph.edges[0]?.label).toBeUndefined();
+    expect(result.graph.nodes[0]?.shortLabel).toBeUndefined();
+    expect(result.graph.nodes[0]?.facets).toEqual({
+      architecture: { kind: "software_system", product: "HubSpot" }
+    });
+    expect(result.graph.nodes[1]?.facets).toBeUndefined();
+    expect(result.graph.edges[0]?.facets).toBeUndefined();
+    expect(result.graph.edges[0]).toMatchObject({
+      scope: "current",
+      certainty: "asserted"
+    });
     expect(result.graph.suggestedQuestion).toBeUndefined();
     await analyzer.close();
   });
@@ -516,6 +831,71 @@ describe("CodexMeetingAnalyzer", () => {
 
     await expect(analyzer.analyze(analyzeInput())).rejects.toThrow(
       "returned invalid graph references"
+    );
+    await analyzer.close();
+  });
+
+  it("rejects stable node identity churn when an unchanged concept is reissued under a new ID", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.id === "hubspot" ? { ...node, id: "hubspot-reissued" } : node
+      ),
+      edges: graph.edges.map((edge) => ({
+        ...edge,
+        from: edge.from === "hubspot" ? "hubspot-reissued" : edge.from
+      }))
+    });
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    await expect(
+      analyzer.analyze({
+        ...analyzeInput(),
+        currentGraph: graph,
+        newUtterances: [
+          analysisUtterance(
+            "customer-reaffirmation",
+            2,
+            "HubSpot still produces the spreadsheet."
+          )
+        ]
+      })
+    ).rejects.toThrow("preserve its stable ID");
+    await analyzer.close();
+  });
+
+  it("rejects duplicate semantic edges before accepting a graph revision", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify({
+      ...graph,
+      edges: [
+        ...graph.edges,
+        { ...graph.edges[0], id: "duplicate-hubspot-to-sheet" }
+      ]
+    });
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    await expect(analyzer.analyze(analyzeInput())).rejects.toThrow(
+      "duplicates an existing semantic edge"
+    );
+    await analyzer.close();
+  });
+
+  it("rejects model output whose legacy state contradicts scope and certainty", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.id === "hubspot"
+          ? { ...node, state: "current", scope: "desired", certainty: "asserted" }
+          : node
+      )
+    });
+    const analyzer = new CodexMeetingAnalyzer({ client, turnTimeoutMs: 2_000 });
+
+    await expect(analyzer.analyze(analyzeInput())).rejects.toThrow(
+      "legacy state must be desired"
     );
     await analyzer.close();
   });
