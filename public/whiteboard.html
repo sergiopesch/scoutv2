@@ -18,8 +18,8 @@
             <circle cx="50" cy="56" r="3.5" fill="#17181c" />
           </svg>
           <div>
-          <p class="eyebrow">Scout · live business map</p>
-          <h1 class="whiteboard-topic" id="topic">Listening for the shape of the business…</h1>
+            <p class="eyebrow">Scout · live business map</p>
+            <h1 class="whiteboard-topic" id="topic">Listening for the shape of the business…</h1>
           </div>
         </div>
         <div class="whiteboard-status" role="status" aria-live="polite">
@@ -28,14 +28,92 @@
         </div>
       </header>
 
-      <section class="graph-stage" aria-label="Live business graph">
-        <div class="graph-frame" id="graph-frame" aria-busy="true">
-          <div class="graph-placeholder">
-            <h2>Listening and mapping…</h2>
-            <p>The workflow will appear as the meeting reveals people, systems, handoffs and pain points.</p>
+      <section class="view-command-bar" aria-label="Diagram controls">
+        <div class="diagram-tabs" role="tablist" aria-label="Business map views">
+          <button class="diagram-tab" id="tab-process" role="tab" type="button" aria-selected="true" aria-controls="panel-process" data-view="process">
+            <span>Process</span><span class="tab-update" data-view-update="process" hidden>Updated</span>
+          </button>
+          <button class="diagram-tab" id="tab-organization" role="tab" type="button" aria-selected="false" aria-controls="panel-organization" data-view="organization" tabindex="-1">
+            <span>Organisation</span><span class="tab-update" data-view-update="organization" hidden>Updated</span>
+          </button>
+          <button class="diagram-tab" id="tab-architecture" role="tab" type="button" aria-selected="false" aria-controls="panel-architecture" data-view="architecture" tabindex="-1">
+            <span>Architecture</span><span class="tab-update" data-view-update="architecture" hidden>Updated</span>
+          </button>
+        </div>
+
+        <div class="view-tools">
+          <div class="scope-switch" role="group" aria-label="Business state">
+            <button type="button" data-scope="current" aria-pressed="true">Current</button>
+            <button type="button" data-scope="desired" aria-pressed="false">Target</button>
+          </div>
+          <div class="zoom-tools" role="group" aria-label="Zoom controls">
+            <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+            <button type="button" id="zoom-fit">Fit</button>
+            <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+          </div>
+          <button class="follow-live-control" type="button" id="follow-live" aria-pressed="true">Follow live</button>
+        </div>
+      </section>
+
+      <section class="diagram-workspace" aria-label="Live business diagrams">
+        <div class="view-canvas-stack">
+          <p class="view-summary" id="view-summary" aria-live="polite">Listening for a business process.</p>
+          <div class="diagram-panel" id="panel-process" role="tabpanel" aria-labelledby="tab-process" data-view-panel="process">
+            <div class="graph-viewport" data-viewport="process">
+              <div class="graph-frame" data-graph-frame="process" aria-busy="true">
+                <div class="graph-placeholder">
+                  <p class="eyebrow">Process view</p>
+                  <h2>Listening for work and handoffs…</h2>
+                  <p>Tasks, decisions and responsibilities will appear as the conversation makes them explicit.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="diagram-panel" id="panel-organization" role="tabpanel" aria-labelledby="tab-organization" data-view-panel="organization" hidden>
+            <div class="graph-viewport" data-viewport="organization">
+              <div class="graph-frame" data-graph-frame="organization" aria-busy="false">
+                <div class="graph-placeholder">
+                  <p class="eyebrow">Organisation view</p>
+                  <h2>No reporting structure yet</h2>
+                  <p>Scout will only draw positions, units and reporting lines that are explicitly supported.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="diagram-panel" id="panel-architecture" role="tabpanel" aria-labelledby="tab-architecture" data-view-panel="architecture" hidden>
+            <div class="graph-viewport" data-viewport="architecture">
+              <div class="graph-frame" data-graph-frame="architecture" aria-busy="false">
+                <div class="graph-placeholder">
+                  <p class="eyebrow">Architecture view</p>
+                  <h2>Listening for systems and data…</h2>
+                  <p>Applications, stores, boundaries and technical connections will be mapped here.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="render-alert" id="render-alert" role="alert" hidden>
+            <span id="render-alert-text"></span>
+            <button type="button" id="render-retry">Retry view</button>
           </div>
         </div>
-        <div class="render-alert" id="render-alert" role="alert" hidden></div>
+
+        <aside class="diagram-inspector" aria-labelledby="inspector-title">
+          <div class="inspector-heading">
+            <div>
+              <p class="eyebrow">Map detail</p>
+              <h2 id="inspector-title">View outline</h2>
+            </div>
+            <span class="view-revision" id="view-revision">Revision 0</span>
+          </div>
+          <label class="outline-search">
+            <span>Find in this view</span>
+            <input type="search" id="outline-search" autocomplete="off" placeholder="Search elements" />
+          </label>
+          <div class="inspector-selection" id="inspector-selection">
+            <p>Select an element to see its state, relationships and friction.</p>
+          </div>
+          <div class="view-outline" id="view-outline" aria-label="Accessible diagram outline"></div>
+        </aside>
       </section>
 
       <footer class="whiteboard-footer">
@@ -44,13 +122,13 @@
           <p id="follow-up-text"></p>
         </div>
         <details class="legend">
-          <summary>Map key</summary>
-          <div class="legend-items" aria-label="Graph legend">
+          <summary>View key</summary>
+          <div class="legend-items" aria-label="Diagram legend">
             <span>Current</span>
-            <span class="desired">Desired</span>
+            <span class="desired">Target</span>
             <span class="hypothesis">Hypothesis</span>
             <span class="unknown">Unknown</span>
-            <span class="pain">Friction</span>
+            <span class="pain">Friction in detail</span>
           </div>
         </details>
       </footer>
