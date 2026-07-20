@@ -10,3 +10,6 @@ export function updateGraphNode(graph: any, nodeId: string, viewKind: string, ch
 export function addGraphEdge(graph: any, viewKind: string, from: string, to: string, scope: string, evidenceId: string, idFactory?: () => string): { graph: any; entityId: string };
 export function removeGraphEdge(graph: any, edgeId: string): any;
 export function updateGraphEdge(graph: any, edgeId: string, viewKind: string, changes: any): any;
+export function addGraphPain(graph: any, input?: any, idFactory?: () => string): { graph: any; entityId: string };
+export function updateGraphPain(graph: any, painId: string, input?: any): any;
+export function removeGraphPain(graph: any, painId: string): any;

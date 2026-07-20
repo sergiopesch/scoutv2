@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import {
   addGraphEdge,
   addGraphNode,
+  addGraphPain,
   isPostCallReviewPath,
   postCallReviewView,
   removeGraphEdge,
   removeGraphNode,
+  removeGraphPain,
   savePostCallReview,
   updateGraphEdge,
-  updateGraphNode
+  updateGraphNode,
+  updateGraphPain
 } from "../../public/js/post-call-editor.js";
 import {
   BusinessGraphSchema,
@@ -205,6 +208,129 @@ describe("post-call diagram editor", () => {
     expect(removed.edges).toEqual([]);
     expect(removed.pains[0]).not.toHaveProperty("targetEdgeIds");
     expect(validateGraphSemantics(removed)).toEqual([]);
+  });
+
+  it("adds an evidence-free editorial pain and preserves meeting evidence while amending it", () => {
+    const source = graph();
+    source.nodes.push({
+      id: "worker", kind: "system", label: "Worker", state: "current", scope: "current",
+      certainty: "asserted", confidence: 1, facets: { architecture: { kind: "worker" } }, evidenceUtteranceIds: ["utt-1"]
+    });
+    source.pains.push({
+      id: "meeting-pain", description: "Manual allocation", targetNodeIds: ["orders-api"],
+      severity: "high", category: "rework", state: "current", scope: "current", certainty: "asserted", provenance: "meeting", evidenceUtteranceIds: ["utt-1"]
+    });
+    const added = addGraphPain(source, {
+      description: "Possible queue delay", targetNodeIds: ["worker"], severity: "low", category: "delay",
+      diagnosis: { failureMode: "Queue waits" }
+    }, () => "editorial");
+    expect(added.graph.pains.at(-1)).toMatchObject({
+      id: "pain-editorial", provenance: "post_call_editorial", certainty: "hypothesis", state: "hypothesis",
+      evidenceUtteranceIds: [], targetNodeIds: ["worker"], category: "delay"
+    });
+    const amended = updateGraphPain(added.graph, "meeting-pain", {
+      description: "Confirmed manual allocation", targetNodeIds: ["orders-api", "worker"], severity: "medium",
+      diagnosis: { consequence: "Slower fulfilment" }
+    });
+    expect(amended.pains[0]).toMatchObject({
+      provenance: "meeting", evidenceUtteranceIds: ["utt-1"], targetNodeIds: ["orders-api", "worker"],
+      category: "rework", diagnosis: { consequence: "Slower fulfilment" }
+    });
+    expect(validateGraphSemantics(amended)).toEqual([]);
+    expect(BusinessGraphSchema.safeParse(amended).success).toBe(true);
+  });
+
+  it("requires a target for a review finding and makes removal reversible by the caller", () => {
+    expect(() => addGraphPain(graph(), { description: "No target" })).toThrow("affected element");
+    const added = addGraphPain(graph(), { targetNodeIds: ["orders-api"] }, () => "remove-me");
+    const removed = removeGraphPain(added.graph, "pain-remove-me");
+    expect(removed.pains).toEqual([]);
+    expect(added.graph.pains).toHaveLength(1);
+    const meeting = graph();
+    meeting.pains = [{
+      id: "meeting-pain",
+      description: "Confirmed pain",
+      targetNodeIds: ["orders-api"],
+      severity: "high",
+      state: "current",
+      evidenceUtteranceIds: ["utt-1"]
+    }];
+    expect(() => removeGraphPain(meeting, "meeting-pain")).toThrow(
+      "marked unsupported"
+    );
+  });
+
+  it("rejects cross-scope and disconnected review pain targets before save", () => {
+    const source = graph();
+    source.nodes.push({
+      id: "future-worker", kind: "system", label: "Future worker", state: "desired",
+      scope: "desired", certainty: "asserted", confidence: 1,
+      facets: { architecture: { kind: "worker" } }, evidenceUtteranceIds: ["utt-1"]
+    });
+    source.edges.push({
+      id: "future-edge", from: "future-worker", to: "future-worker", kind: "feeds",
+      state: "desired", scope: "desired", certainty: "asserted", confidence: 1,
+      evidenceUtteranceIds: ["utt-1"]
+    });
+    expect(() => addGraphPain(source, {
+      targetNodeIds: ["orders-api"], scope: "desired"
+    })).toThrow("desired scope");
+    expect(() => addGraphPain(source, {
+      targetNodeIds: ["orders-api"], targetEdgeIds: ["future-edge"], scope: "current"
+    })).toThrow("current scope");
+
+    source.nodes.push({
+      id: "other", kind: "system", label: "Other", state: "current",
+      scope: "current", certainty: "asserted", confidence: 1,
+      facets: { architecture: { kind: "service" } }, evidenceUtteranceIds: ["utt-1"]
+    });
+    source.edges.push({
+      id: "other-edge", from: "orders-api", to: "other", kind: "feeds",
+      state: "current", scope: "current", certainty: "asserted", confidence: 1,
+      evidenceUtteranceIds: ["utt-1"]
+    });
+    expect(() => addGraphPain(source, {
+      targetNodeIds: ["future-worker"],
+      targetEdgeIds: ["other-edge"],
+      scope: "desired"
+    })).toThrow();
+  });
+
+  it("preserves desired and unknown semantics on legacy pain edits", () => {
+    const desired = graph();
+    desired.nodes[0]!.state = "desired";
+    desired.nodes[0]!.scope = "desired";
+    desired.pains = [{
+      id: "legacy-desired",
+      description: "Future allocation risk",
+      targetNodeIds: ["orders-api"],
+      severity: "medium",
+      state: "desired",
+      evidenceUtteranceIds: ["utt-1"]
+    }];
+    expect(updateGraphPain(desired, "legacy-desired", {
+      description: "Reviewed future allocation risk"
+    }).pains[0]).toMatchObject({
+      scope: "desired",
+      state: "desired",
+      certainty: "asserted"
+    });
+
+    const unknown = graph();
+    unknown.pains = [{
+      id: "legacy-unknown",
+      description: "Unclear allocation behavior",
+      targetNodeIds: ["orders-api"],
+      severity: "medium",
+      state: "unknown",
+      evidenceUtteranceIds: ["utt-1"]
+    }];
+    expect(updateGraphPain(unknown, "legacy-unknown", {
+      description: "Still unclear"
+    }).pains[0]).toMatchObject({
+      state: "unknown",
+      certainty: "unknown"
+    });
   });
 
   it("keeps connected relationships semantically compatible when a node is rescaled", () => {

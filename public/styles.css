@@ -1759,6 +1759,25 @@ summary:focus-visible {
 .diagram-inspector .review-notes[hidden] { display: none; }
 .review-notes > summary { padding: 0.75rem 0; cursor: pointer; font-family: var(--mono); font-size: 0.55rem; font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; }
 .review-notes-fields { display: grid; gap: 0.75rem; padding-bottom: 0.75rem; }
+.review-findings { margin-top: 1rem; padding-top: 0.2rem; border-top: 1px solid var(--rule); }
+.review-findings[hidden] { display: none; }
+.review-findings > summary { padding: 0.75rem 0; cursor: pointer; font-family: var(--mono); font-size: 0.55rem; font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; }
+.review-findings-intro, .review-question { margin: 0 0 0.75rem; color: var(--ink-muted); font-size: 0.78rem; line-height: 1.45; }
+.review-question { padding: 0.65rem; border-left: 2px solid var(--signal); color: var(--ink); }
+.review-findings-list { display: grid; gap: 0.45rem; margin-bottom: 0.75rem; }
+.review-finding { display: flex; width: 100%; align-items: start; justify-content: space-between; gap: 0.6rem; padding: 0.65rem; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); text-align: left; cursor: pointer; }
+.review-finding[data-selected="true"] { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--signal); }
+.review-finding-copy { display: grid; gap: 0.2rem; }
+.review-finding-copy strong { font-size: 0.8rem; font-weight: 700; }
+.review-finding-copy span, .review-finding-meta { color: var(--ink-muted); font-family: var(--mono); font-size: 0.52rem; letter-spacing: 0.03em; text-transform: uppercase; }
+.pain-editor { display: grid; gap: 0.65rem; margin: 0.75rem 0; padding-top: 0.75rem; border-top: 1px solid var(--rule); }
+.pain-editor[hidden] { display: none; }
+.pain-editor label { display: grid; gap: 0.3rem; }
+.pain-editor label > span { font-family: var(--mono); font-size: 0.52rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.pain-editor input, .pain-editor textarea, .pain-editor select { width: 100%; border: 1px solid var(--rule); border-radius: 0; background: var(--paper); color: var(--ink); padding: 0.5rem; font: inherit; }
+.pain-editor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; }
+.pain-editor-grid:has(#pain-editor-failure-mode) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 520px) { .pain-editor-grid, .pain-editor-grid:has(#pain-editor-failure-mode) { grid-template-columns: 1fr; } }
 .outline-disclosure { margin-top: 0.25rem; border-top: 1px solid var(--rule); }
 .outline-disclosure > summary { padding: 0.75rem 0; cursor: pointer; font-family: var(--mono); font-size: 0.55rem; font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; }
 .outline-disclosure .view-outline { margin-top: 0; padding-bottom: 0.75rem; }
