@@ -113,7 +113,43 @@ describe("Codex handoff package", () => {
     expect(handoff.review.intervention).toEqual(
       snapshot.postCall.intervention
     );
-    expect(handoff.orchestration.tasks).toHaveLength(2);
+    expect(handoff.orchestration.tasks).toHaveLength(3);
+    expect(handoff.orchestration.tasks.at(-1)).toMatchObject({
+      id: "implementation-slice",
+      dependsOn: ["delivery-plan"],
+      objective: "Add a bounded allocation adapter",
+      plugins: []
+    });
+    expect(handoff.orchestration.tasks.at(-1)?.doneWhen).toEqual(
+      expect.arrayContaining([
+        "Constraint: Keep the current process available",
+        "Acceptance criterion: One order requires one entry",
+        "Must not: Replace allocation"
+      ])
+    );
+    expect(handoff.outcomes.at(-1)).toMatchObject({
+      id: "implementation-slice",
+      title: "Authorized implementation slice"
+    });
+  });
+
+  it("does not add an implementation task for a candidate intervention", () => {
+    const snapshot = endedSession();
+    snapshot.postCall.intervention = {
+      painId: "manual-allocation",
+      desiredOutcome: "Remove duplicate entry",
+      proposal: "Add a bounded allocation adapter",
+      constraints: ["Keep the current process available"],
+      acceptanceCriteria: ["One order requires one entry"],
+      nonGoals: ["Replace allocation"],
+      decision: "candidate"
+    };
+
+    const handoff = buildCodexHandoffPackage(snapshot);
+    expect(handoff.orchestration.tasks.map((task) => task.id)).toEqual([
+      "process-design",
+      "delivery-plan"
+    ]);
   });
 
   it("writes a private local project and opens the supported Codex deep-link contract", async () => {
@@ -144,6 +180,61 @@ describe("Codex handoff package", () => {
     expect(deepLink.protocol).toBe("codex:");
     expect(deepLink.searchParams.get("path")).toBe(prepared.directory);
     expect(deepLink.searchParams.get("prompt")).toContain("2 named outcomes");
+  });
+
+  it("writes the approved build brief and includes it in the manifest", async () => {
+    const snapshot = endedSession();
+    snapshot.postCall.intervention = {
+      painId: "manual-allocation",
+      desiredOutcome: "Remove duplicate entry",
+      proposal: "Add a bounded allocation adapter",
+      constraints: ["Keep the current process available"],
+      acceptanceCriteria: ["One order requires one entry"],
+      nonGoals: ["Replace allocation"],
+      decision: "approved_for_build"
+    };
+    const root = await mkdtemp(path.join(os.tmpdir(), "scout-handoff-test-"));
+    const prepared = await writeCodexHandoffProject(root, snapshot);
+
+    expect(prepared.files).toContain("BUILD_BRIEF.md");
+    expect(await readFile(path.join(prepared.directory, "BUILD_BRIEF.md"), "utf8"))
+      .toContain("Add a bounded allocation adapter");
+    const manifest = JSON.parse(
+      await readFile(path.join(prepared.directory, "manifest.json"), "utf8")
+    );
+    expect(manifest.files).toHaveProperty("BUILD_BRIEF.md");
+  });
+
+  it("keeps the legacy project file set when no intervention is present", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "scout-handoff-test-"));
+    const prepared = await writeCodexHandoffProject(root, endedSession());
+
+    expect(prepared.files).not.toContain("BUILD_BRIEF.md");
+    const manifest = JSON.parse(
+      await readFile(path.join(prepared.directory, "manifest.json"), "utf8")
+    );
+    expect(manifest.files).not.toHaveProperty("BUILD_BRIEF.md");
+  });
+
+  it("keeps candidate project files and manifest on the legacy contract", async () => {
+    const snapshot = endedSession();
+    snapshot.postCall.intervention = {
+      painId: "manual-allocation",
+      desiredOutcome: "Remove duplicate entry",
+      proposal: "Add a bounded allocation adapter",
+      constraints: ["Keep the current process available"],
+      acceptanceCriteria: ["One order requires one entry"],
+      nonGoals: ["Replace allocation"],
+      decision: "candidate"
+    };
+    const root = await mkdtemp(path.join(os.tmpdir(), "scout-handoff-test-"));
+    const prepared = await writeCodexHandoffProject(root, snapshot);
+    const manifest = JSON.parse(
+      await readFile(path.join(prepared.directory, "manifest.json"), "utf8")
+    );
+
+    expect(prepared.files).not.toContain("BUILD_BRIEF.md");
+    expect(manifest.files).not.toHaveProperty("BUILD_BRIEF.md");
   });
 
   it("encodes paths and prompts without concatenating unsafe query text", () => {
