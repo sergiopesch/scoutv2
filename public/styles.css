@@ -1253,6 +1253,22 @@ summary:focus-visible {
   font-weight: 750;
 }
 
+.diagram-tab-beta small {
+  display: inline-block;
+  margin-left: 0.45rem;
+  padding: 0.08rem 0.34rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.diagram-tab[hidden] {
+  display: none;
+}
+
 .diagram-tab::after {
   position: absolute;
   right: 0.75rem;

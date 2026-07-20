@@ -47,6 +47,9 @@
           <button class="diagram-tab" id="tab-architecture" role="tab" type="button" aria-selected="false" aria-controls="panel-architecture" data-view="architecture" tabindex="-1">
             <span class="tab-copy"><strong>Architecture</strong></span><span class="tab-update" data-view-update="architecture" hidden>Updated</span>
           </button>
+          <button class="diagram-tab diagram-tab-beta" id="tab-supply-chain" role="tab" type="button" aria-selected="false" aria-controls="panel-supply-chain" data-supply-chain-tab tabindex="-1" hidden>
+            <span class="tab-copy"><strong>Supply chain</strong><small>Beta</small></span>
+          </button>
         </div>
 
         <div class="view-tools">
@@ -96,6 +99,17 @@
                   <p class="eyebrow">Architecture view</p>
                   <h2>Listening for systems and data…</h2>
                   <p>Applications, stores, boundaries and technical connections will be mapped here.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="diagram-panel" id="panel-supply-chain" role="tabpanel" aria-labelledby="tab-supply-chain" data-supply-chain-panel hidden>
+            <div class="graph-viewport" data-supply-chain-viewport>
+              <div class="graph-frame" data-supply-chain-frame aria-busy="false">
+                <div class="graph-placeholder">
+                  <p class="eyebrow">Supply chain · beta</p>
+                  <h2>Explicit flows only</h2>
+                  <p>Open this view to map only evidenced production, feed and handoff connections.</p>
                 </div>
               </div>
             </div>
