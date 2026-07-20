@@ -7,6 +7,7 @@ describe("loadConfig", () => {
 
     expect(config.recall).toBeUndefined();
     expect(config.codex.reasoningEffort).toBe("low");
+    expect(config.codex.structuredDiagnosis).toBe(false);
     expect(config.analysisDelayMs).toBe(8_000);
     expect(config.analysisRerunDelayMs).toBe(2_000);
     expect(config.analysisMaxBatchUtterances).toBe(40);
@@ -18,6 +19,17 @@ describe("loadConfig", () => {
     expect(config.sessionRetentionMs).toBe(4 * 60 * 60 * 1_000);
     expect(config.shutdownGraceMs).toBe(60_000);
     expect(config.allowDevIngest).toBe(false);
+  });
+
+  it("keeps structured diagnosis opt-in", () => {
+    expect(
+      loadConfig({ SCOUT_STRUCTURED_DIAGNOSIS: "1" }).codex
+        .structuredDiagnosis
+    ).toBe(true);
+    expect(
+      loadConfig({ SCOUT_STRUCTURED_DIAGNOSIS: "true" }).codex
+        .structuredDiagnosis
+    ).toBe(false);
   });
 
   it("normalizes public and Recall base URLs", () => {

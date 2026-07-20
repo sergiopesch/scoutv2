@@ -22,6 +22,7 @@ export interface AppConfig {
     binary: string;
     model: string;
     reasoningEffort: "low" | "medium" | "high";
+    structuredDiagnosis?: boolean;
   };
   recall?: {
     region: RecallRegion;
@@ -175,7 +176,8 @@ export const loadConfig = (
     codex: {
       binary: environment.CODEX_BINARY?.trim() || "codex",
       model: environment.CODEX_MODEL?.trim() || "gpt-5.6-sol",
-      reasoningEffort: effort as AppConfig["codex"]["reasoningEffort"]
+      reasoningEffort: effort as AppConfig["codex"]["reasoningEffort"],
+      structuredDiagnosis: environment.SCOUT_STRUCTURED_DIAGNOSIS === "1"
     },
     recall: recallApiKey
       ? {

@@ -142,6 +142,79 @@ const edgeFacets = z
     message: "At least one edge facet is required."
   });
 
+const painDiagnosis = z
+  .object({
+    failureMode: z.string().min(1).max(180).optional(),
+    consequence: z.string().min(1).max(180).optional(),
+    causeHypothesis: z.string().min(1).max(180).optional(),
+    frequency: z.string().min(1).max(100).optional()
+  })
+  .strict()
+  .refine((diagnosis) => Object.values(diagnosis).some(Boolean), {
+    message: "At least one diagnosis field is required."
+  });
+
+const painBaseShape = {
+  id,
+  description: z.string().min(1).max(180),
+  targetNodeIds: z.array(id).min(1).max(8),
+  severity: z.enum(["low", "medium", "high"]),
+  state: z.enum(graphStates),
+  scope: z.enum(graphScopes).optional(),
+  certainty: z.enum(graphCertainties).optional()
+};
+
+const painSchema = z
+  .object({
+    ...painBaseShape,
+    targetEdgeIds: z.array(id).max(8).optional(),
+    category: z
+      .enum([
+        "delay",
+        "rework",
+        "error",
+        "cost",
+        "risk",
+        "capacity",
+        "experience",
+        "interoperability",
+        "other"
+      ])
+      .optional(),
+    diagnosis: painDiagnosis.optional(),
+    provenance: z.enum(["meeting", "post_call_editorial"]).optional(),
+    evidenceUtteranceIds: evidenceIds
+  })
+  .strict()
+  .superRefine((pain, context) => {
+    if (
+      pain.evidenceUtteranceIds.length === 0 &&
+      pain.provenance !== "post_call_editorial"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Meeting-derived pain points require utterance evidence."
+      });
+    }
+    if (
+      pain.provenance === "post_call_editorial" &&
+      (pain.evidenceUtteranceIds.length > 0 || pain.certainty !== "hypothesis")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Post-call editorial pain points must be evidence-free hypotheses."
+      });
+    }
+  });
+
+const legacyModelPainSchema = z
+  .object({
+    ...painBaseShape,
+    evidenceUtteranceIds: requiredEvidenceIds
+  })
+  .strict();
+
 export const BusinessGraphSchema = z
   .object({
     topic: z
@@ -207,22 +280,7 @@ export const BusinessGraphSchema = z
           })
       )
       .max(64),
-    pains: z
-      .array(
-        z
-          .object({
-            id,
-            description: z.string().min(1).max(180),
-            targetNodeIds: z.array(id).min(1).max(8),
-            severity: z.enum(["low", "medium", "high"]),
-            state: z.enum(graphStates),
-            scope: z.enum(graphScopes).optional(),
-            certainty: z.enum(graphCertainties).optional(),
-            evidenceUtteranceIds: requiredEvidenceIds
-          })
-          .strict()
-      )
-      .max(12),
+    pains: z.array(painSchema).max(12),
     contradictions: z
       .array(
         z
@@ -281,6 +339,13 @@ export const BusinessGraphSchema = z
           message: "Pain point targets must be unique."
         });
       }
+      if (!unique(pain.targetEdgeIds)) {
+        context.addIssue({
+          code: "custom",
+          path: ["pains", index, "targetEdgeIds"],
+          message: "Pain point edge targets must be unique."
+        });
+      }
     });
     const evidenceGroups = [
       ["topic", graph.topic.evidenceUtteranceIds] as const,
@@ -324,12 +389,30 @@ export const BusinessGraphModelOutputSchema = BusinessGraphSchema.safeExtend({
     })
   ).max(64),
   pains: z.array(
-    BusinessGraphSchema.shape.pains.element.safeExtend({
+    legacyModelPainSchema.safeExtend({
       scope: z.enum(graphScopes),
       certainty: z.enum(graphCertainties)
     })
   ).max(12)
 });
+
+/** Opt-in model contract for evidence-backed structured diagnosis. */
+export const BusinessGraphDiagnosticModelOutputSchema =
+  BusinessGraphSchema.safeExtend({
+    topic: BusinessGraphModelOutputSchema.shape.topic,
+    nodes: BusinessGraphModelOutputSchema.shape.nodes,
+    edges: BusinessGraphModelOutputSchema.shape.edges,
+    pains: z
+      .array(
+        painSchema.safeExtend({
+          scope: z.enum(graphScopes),
+          certainty: z.enum(graphCertainties),
+          provenance: z.literal("meeting").optional(),
+          evidenceUtteranceIds: requiredEvidenceIds
+        })
+      )
+      .max(12)
+  });
 
 const hasDirectedCycle = (links: Array<readonly [string, string]>): boolean => {
   const adjacency = new Map<string, string[]>();
@@ -356,6 +439,7 @@ const hasDirectedCycle = (links: Array<readonly [string, string]>): boolean => {
 export const validateGraphSemantics = (graph: BusinessGraph): string[] => {
   const errors: string[] = [];
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edgesById = new Map(graph.edges.map((edge) => [edge.id, edge]));
   const scopesOf = (item: { scope?: "current" | "desired" | "both"; state: string }):
     Array<"current" | "desired"> =>
     item.scope === "both"
@@ -675,6 +759,22 @@ export const validateGraphSemantics = (graph: BusinessGraph): string[] => {
           errors.push(`Pain point ${pain.id} target ${targetNodeId} must exist in ${scope} scope.`);
         }
       }
+      for (const targetEdgeId of pain.targetEdgeIds ?? []) {
+        const targetEdge = edgesById.get(targetEdgeId);
+        if (!appliesInScope(targetEdge, scope)) {
+          errors.push(
+            `Pain point ${pain.id} edge target ${targetEdgeId} must exist in ${scope} scope.`
+          );
+        } else if (
+          targetEdge &&
+          !pain.targetNodeIds.includes(targetEdge.from) &&
+          !pain.targetNodeIds.includes(targetEdge.to)
+        ) {
+          errors.push(
+            `Pain point ${pain.id} edge target ${targetEdgeId} must connect to one of its node targets.`
+          );
+        }
+      }
     }
   }
 
@@ -698,6 +798,7 @@ export const validateGraphReferences = (
 ): string[] => {
   const errors: string[] = [];
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
+  const edgeIds = new Set(graph.edges.map((edge) => edge.id));
   const entityIds = [
     ...graph.nodes.map((node) => node.id),
     ...graph.edges.map((edge) => edge.id),
@@ -718,6 +819,9 @@ export const validateGraphReferences = (
   for (const pain of graph.pains) {
     if (pain.targetNodeIds.some((targetId) => !nodeIds.has(targetId))) {
       errors.push(`Pain point ${pain.id} references a missing node.`);
+    }
+    if (pain.targetEdgeIds?.some((targetId) => !edgeIds.has(targetId))) {
+      errors.push(`Pain point ${pain.id} references a missing edge.`);
     }
   }
 
@@ -749,7 +853,7 @@ export const validateCustomerEvidence = (
 ): string[] => {
   const errors: string[] = [];
   const editorialIds = new Set(
-    [...graph.nodes, ...graph.edges]
+    [...graph.nodes, ...graph.edges, ...graph.pains]
       .filter((item) => item.provenance === "post_call_editorial")
       .map((item) => item.id)
   );
