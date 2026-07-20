@@ -152,7 +152,7 @@ export async function loadPostCallReview(sessionId, fetchImpl = fetch) {
 
 export async function savePostCallReview(
   sessionId,
-  { expectedRevision, graph, notes, annotations = {} },
+  { expectedRevision, graph, notes, annotations = {}, intervention },
   fetchImpl = fetch
 ) {
   const response = await fetchImpl(`/api/reviews/${encodeURIComponent(sessionId)}`, {
@@ -161,7 +161,13 @@ export async function savePostCallReview(
       Accept: "application/json",
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ expectedRevision, graph, notes, annotations })
+    body: JSON.stringify({
+      expectedRevision,
+      graph,
+      notes,
+      annotations,
+      ...(intervention === undefined ? {} : { intervention })
+    })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {

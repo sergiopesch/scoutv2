@@ -96,6 +96,7 @@ export type SessionEvent =
       graph: BusinessGraph;
       notes: string;
       annotations: PostCallReviewState["annotations"];
+      intervention: PostCallReviewState["intervention"] | null;
     }
   | {
       sequence: number;
@@ -320,6 +321,9 @@ const applySessionEvent = (
         revision: snapshot.postCall.revision + 1,
         notes: event.notes,
         annotations: event.annotations,
+        ...(event.intervention === null
+          ? {}
+          : { intervention: structuredClone(event.intervention) }),
         lastEditedAt: event.occurredAt,
         approvedAt: event.occurredAt,
         approvedGraphRevision: snapshot.revision
@@ -522,7 +526,8 @@ export class SessionStore {
     expectedRevision: number,
     graph: BusinessGraph,
     notes: string,
-    annotations: PostCallReviewState["annotations"] = {}
+    annotations: PostCallReviewState["annotations"] = {},
+    intervention?: PostCallReviewState["intervention"] | null
   ): SessionSnapshot {
     const current = this.getRequired(id);
     if (current.status !== "ended") {
@@ -542,7 +547,11 @@ export class SessionStore {
       type: "post-call.edited",
       graph,
       notes,
-      annotations
+      annotations,
+      intervention:
+        intervention === undefined
+          ? (current.postCall.intervention ?? null)
+          : intervention
     });
   }
 

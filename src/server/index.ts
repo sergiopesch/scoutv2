@@ -76,6 +76,45 @@ const OperatorSelectionSchema = z
   })
   .strict();
 
+const InterventionSchema = z
+  .object({
+    painId: z.string().trim().min(1).max(64),
+    desiredOutcome: z.string().trim().max(1_000),
+    proposal: z.string().trim().max(4_000),
+    constraints: z.array(z.string().trim().min(1).max(500)).max(20),
+    acceptanceCriteria: z
+      .array(z.string().trim().min(1).max(500))
+      .max(20),
+    nonGoals: z.array(z.string().trim().min(1).max(500)).max(20),
+    decision: z.enum(["candidate", "approved_for_build"])
+  })
+  .strict()
+  .superRefine((intervention, context) => {
+    if (intervention.decision !== "approved_for_build") return;
+    for (const field of ["desiredOutcome", "proposal"] as const) {
+      if (intervention[field].length === 0) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: `${field} is required before build approval.`
+        });
+      }
+    }
+    for (const [field, values] of [
+      ["constraints", intervention.constraints],
+      ["acceptanceCriteria", intervention.acceptanceCriteria],
+      ["nonGoals", intervention.nonGoals]
+    ] as const) {
+      if (values.length === 0) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: `${field} must contain at least one item before build approval.`
+        });
+      }
+    }
+  });
+
 const PostCallEditSchema = z
   .object({
     expectedRevision: z.number().int().nonnegative(),
@@ -92,7 +131,8 @@ const PostCallEditSchema = z
           })
           .strict()
       )
-      .default({})
+      .default({}),
+    intervention: InterventionSchema.nullable().optional()
   })
   .strict();
 
@@ -1169,13 +1209,44 @@ export const createScoutRuntime = (
       });
       return;
     }
+    const intervention = parsed.data.intervention;
+    const effectiveIntervention =
+      intervention === undefined &&
+      parsed.data.expectedRevision === snapshot.revision
+        ? snapshot.postCall.intervention
+        : (intervention ?? undefined);
+    if (effectiveIntervention) {
+      const painExists = parsed.data.graph.pains.some(
+        (pain) => pain.id === effectiveIntervention.painId
+      );
+      if (!painExists) {
+        response.status(422).json({
+          error: "The approved intervention must reference an existing pain.",
+          issues: [`Unknown pain point: ${effectiveIntervention.painId}`]
+        });
+        return;
+      }
+      if (
+        annotations[effectiveIntervention.painId]?.disposition ===
+        "unsupported"
+      ) {
+        response.status(422).json({
+          error: "An unsupported pain cannot be selected for intervention.",
+          issues: [
+            `Pain point ${effectiveIntervention.painId} is marked unsupported.`
+          ]
+        });
+        return;
+      }
+    }
     try {
       const updated = store.editPostCall(
         sessionId,
         parsed.data.expectedRevision,
         parsed.data.graph,
         parsed.data.notes,
-        annotations
+        annotations,
+        intervention
       );
       response.setHeader("Cache-Control", "no-store");
       response.json({

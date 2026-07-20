@@ -76,6 +76,7 @@ describe("Codex handoff package", () => {
         note: "The reviewer could not validate this step."
       }
     });
+    expect(handoff.review).not.toHaveProperty("intervention");
     expect(handoff.outcomes.map((outcome) => outcome.title)).toEqual([
       "Process improvement design",
       "Integrated delivery plan"
@@ -86,6 +87,33 @@ describe("Codex handoff package", () => {
       "do not create runtime subagents"
     );
     expect(handoff.orchestration.tasks.every((task) => task.model === "gpt-5.6-sol")).toBe(true);
+  });
+
+  it("adds the selected intervention without changing legacy handoff fields", () => {
+    const snapshot = endedSession();
+    snapshot.graph.pains = [{
+      id: "manual-allocation",
+      description: "Orders are re-keyed before allocation",
+      targetNodeIds: ["allocation"],
+      severity: "high",
+      state: "current",
+      evidenceUtteranceIds: ["utt-1"]
+    }];
+    snapshot.postCall.intervention = {
+      painId: "manual-allocation",
+      desiredOutcome: "Remove duplicate entry",
+      proposal: "Add a bounded allocation adapter",
+      constraints: ["Keep the current process available"],
+      acceptanceCriteria: ["One order requires one entry"],
+      nonGoals: ["Replace allocation"],
+      decision: "approved_for_build"
+    };
+
+    const handoff = buildCodexHandoffPackage(snapshot);
+    expect(handoff.review.intervention).toEqual(
+      snapshot.postCall.intervention
+    );
+    expect(handoff.orchestration.tasks).toHaveLength(2);
   });
 
   it("writes a private local project and opens the supported Codex deep-link contract", async () => {

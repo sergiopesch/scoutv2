@@ -113,7 +113,16 @@ const prepareEndedSession = (runtime: ReturnType<typeof createScoutRuntime>) => 
       evidenceUtteranceIds: ["utt-1"]
     }],
     edges: [],
-    pains: [],
+    pains: [{
+      id: "manual-allocation",
+      description: "Orders are re-keyed before allocation",
+      targetNodeIds: ["orders-api"],
+      severity: "high",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      evidenceUtteranceIds: ["utt-1"]
+    }],
     contradictions: []
   });
   runtime.store.setStatus(session.id, "ended");
@@ -190,6 +199,155 @@ describe("post-call review and Codex handoff routes", () => {
       });
     expect(response.status).toBe(422);
     expect(response.body.error).toContain("annotation");
+    await runtime.close();
+  });
+
+  it("persists a bounded intervention and preserves it when legacy clients omit the field", async () => {
+    const runtime = createScoutRuntime(config, { analyzer: new IdleAnalyzer() });
+    const snapshot = prepareEndedSession(runtime);
+    const intervention = {
+      painId: "manual-allocation",
+      desiredOutcome: "Remove duplicate order entry",
+      proposal: "Add an idempotent allocation adapter behind the existing API.",
+      constraints: ["Keep the current API contract"],
+      acceptanceCriteria: ["A repeated order is allocated once"],
+      nonGoals: ["Replacing the warehouse system"],
+      decision: "approved_for_build"
+    };
+    const saved = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: snapshot.revision,
+        graph: snapshot.graph,
+        notes: "Approved intervention.",
+        intervention
+      });
+    expect(saved.status).toBe(200);
+    expect(saved.body.postCall.intervention).toEqual(intervention);
+
+    const legacySave = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: saved.body.revision,
+        graph: saved.body.graph,
+        notes: "A legacy editor changed only these notes."
+      });
+    expect(legacySave.status).toBe(200);
+    expect(legacySave.body.postCall.intervention).toEqual(intervention);
+
+    const graphWithoutSelectedPain = structuredClone(legacySave.body.graph);
+    graphWithoutSelectedPain.pains = [];
+    const deletedPain = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: legacySave.body.revision,
+        graph: graphWithoutSelectedPain,
+        notes: "Legacy save omitted the intervention."
+      });
+    expect(deletedPain.status).toBe(422);
+    expect(deletedPain.body.error).toContain("existing pain");
+
+    const unsupportedPain = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: legacySave.body.revision,
+        graph: legacySave.body.graph,
+        notes: "Legacy save omitted the intervention.",
+        annotations: {
+          "manual-allocation": {
+            targetType: "pain",
+            disposition: "unsupported",
+            note: "The stakeholder withdrew this pain."
+          }
+        }
+      });
+    expect(unsupportedPain.status).toBe(422);
+    expect(unsupportedPain.body.error).toContain("unsupported pain");
+
+    const preview = await request(runtime.app).get(
+      `/api/handoffs/${snapshot.id}`
+    );
+    expect(preview.body.package.review.intervention).toEqual(intervention);
+    await runtime.close();
+  });
+
+  it("allows incomplete candidates but rejects unsafe build approval", async () => {
+    const runtime = createScoutRuntime(config, { analyzer: new IdleAnalyzer() });
+    const snapshot = prepareEndedSession(runtime);
+    const candidate = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: snapshot.revision,
+        graph: snapshot.graph,
+        notes: "",
+        intervention: {
+          painId: "manual-allocation",
+          desiredOutcome: "",
+          proposal: "",
+          constraints: [],
+          acceptanceCriteria: [],
+          nonGoals: [],
+          decision: "candidate"
+        }
+      });
+    expect(candidate.status).toBe(200);
+
+    const approval = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: candidate.body.revision,
+        graph: candidate.body.graph,
+        notes: "",
+        intervention: {
+          ...candidate.body.postCall.intervention,
+          decision: "approved_for_build"
+        }
+      });
+    expect(approval.status).toBe(400);
+    expect(JSON.stringify(approval.body)).toContain("acceptanceCriteria");
+    await runtime.close();
+  });
+
+  it("rejects interventions that target unknown or unsupported pains", async () => {
+    const runtime = createScoutRuntime(config, { analyzer: new IdleAnalyzer() });
+    const snapshot = prepareEndedSession(runtime);
+    const intervention = {
+      painId: "unknown-pain",
+      desiredOutcome: "",
+      proposal: "",
+      constraints: [],
+      acceptanceCriteria: [],
+      nonGoals: [],
+      decision: "candidate"
+    };
+    const unknown = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: snapshot.revision,
+        graph: snapshot.graph,
+        notes: "",
+        intervention
+      });
+    expect(unknown.status).toBe(422);
+    expect(unknown.body.error).toContain("existing pain");
+
+    const unsupported = await request(runtime.app)
+      .put(`/api/reviews/${snapshot.id}`)
+      .send({
+        expectedRevision: snapshot.revision,
+        graph: snapshot.graph,
+        notes: "",
+        annotations: {
+          "manual-allocation": {
+            targetType: "pain",
+            disposition: "unsupported",
+            note: "The stakeholder withdrew this pain."
+          }
+        },
+        intervention: { ...intervention, painId: "manual-allocation" }
+      });
+    expect(unsupported.status).toBe(422);
+    expect(unsupported.body.error).toContain("unsupported pain");
     await runtime.close();
   });
 

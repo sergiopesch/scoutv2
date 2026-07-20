@@ -49,6 +49,7 @@ export interface CodexHandoffPackage {
     approvedAt?: number;
     approvedGraphRevision?: number;
     annotations: Record<string, PostCallReviewAnnotation>;
+    intervention?: SessionSnapshot["postCall"]["intervention"];
   };
   diagrams: {
     sourceOfTruth: "business-graph.json";
@@ -241,7 +242,10 @@ export const buildCodexHandoffPackage = (
     review: {
       approvedAt: snapshot.postCall.approvedAt,
       approvedGraphRevision: snapshot.postCall.approvedGraphRevision,
-      annotations: structuredClone(snapshot.postCall.annotations)
+      annotations: structuredClone(snapshot.postCall.annotations),
+      ...(snapshot.postCall.intervention === undefined
+        ? {}
+        : { intervention: structuredClone(snapshot.postCall.intervention) })
     },
     diagrams: {
       sourceOfTruth: "business-graph.json",
