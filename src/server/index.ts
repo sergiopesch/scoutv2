@@ -209,6 +209,7 @@ const integrationStatusFromBot = (
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 const projectRoot = (): string => {
+  if (process.env.VERCEL) return process.cwd();
   const candidates = [
     process.cwd(),
     path.resolve(moduleDirectory, "../.."),
