@@ -52,7 +52,7 @@ describe("public Realtime trial route", () => {
       expect(response.headers["x-scout-call-id"]).toBe("call-test");
       expect(createCall).toHaveBeenCalledWith(
         expect.objectContaining({
-          sdp: offer.trim(),
+          sdp: offer,
           safetyIdentifier: expect.stringMatching(/^scout-trial-/)
         })
       );

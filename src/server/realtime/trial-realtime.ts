@@ -133,7 +133,23 @@ export class OpenAIRealtimeTrialClient implements RealtimeTrialAdapter {
       }
     );
     if (!response.ok) {
-      throw new Error(`OpenAI Realtime call creation failed (${response.status}).`);
+      const rawError = await response.text();
+      let detail = "";
+      try {
+        const parsed = JSON.parse(rawError) as {
+          error?: { code?: string; message?: string };
+        };
+        detail = [parsed.error?.code, parsed.error?.message]
+          .filter(Boolean)
+          .join(": ");
+      } catch {
+        detail = rawError.slice(0, 300).trim();
+      }
+      throw new Error(
+        `OpenAI Realtime call creation failed (${response.status})${
+          detail ? `: ${detail}` : "."
+        }`
+      );
     }
 
     const location = response.headers.get("Location");

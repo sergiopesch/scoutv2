@@ -926,8 +926,8 @@ export const createScoutRuntime = (
         });
         return;
       }
-      const sdp = typeof request.body === "string" ? request.body.trim() : "";
-      if (!sdp.startsWith("v=0") || sdp.length < 32) {
+      const sdp = typeof request.body === "string" ? request.body : "";
+      if (!sdp.trimStart().startsWith("v=0") || sdp.trim().length < 32) {
         response.status(400).json({ error: "A valid WebRTC SDP offer is required." });
         return;
       }
