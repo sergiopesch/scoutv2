@@ -1,4 +1,4 @@
-import mermaid from "/vendor/mermaid/mermaid.esm.min.mjs";
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs";
 import { escapeMermaidLabel } from "/js/mermaid-graph.js";
 import { createRevisionRenderer } from "/js/revision-renderer.js";
 
