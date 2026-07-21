@@ -1866,6 +1866,11 @@ const isEntrypoint =
   fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 
 if (isEntrypoint) {
+  try {
+    process.loadEnvFile(".env");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const { runtime, server } = startScoutServer();
   let shuttingDown = false;
   const shutdown = () => {
