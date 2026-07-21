@@ -1,5 +1,5 @@
 import express from "express";
-import { createScoutRuntime } from "./src/server/index.js";
+import { createScoutRuntime } from "./dist/src/server/index.js";
 
 const app = express();
 const runtime = createScoutRuntime();
