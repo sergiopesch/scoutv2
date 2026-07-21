@@ -107,6 +107,157 @@ const entityId = (prefix, idFactory) => {
   return `${prefix}-${raw || Date.now().toString(36)}`.slice(0, 64);
 };
 
+const PAIN_CATEGORIES = new Set([
+  "delay", "rework", "error", "cost", "risk", "capacity", "experience", "interoperability", "other"
+]);
+
+const painScope = (value) => ["current", "desired", "both"].includes(value) ? value : "current";
+const painSeverity = (value) => ["low", "medium", "high"].includes(value) ? value : "medium";
+const uniqueIds = (values) => [...new Set((Array.isArray(values) ? values : [])
+  .map((value) => String(value).trim()).filter(Boolean))].slice(0, 8);
+const optionalText = (value, maximum) => {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text ? text.slice(0, maximum) : undefined;
+};
+
+function diagnosisFor(input = {}) {
+  const diagnosis = {
+    failureMode: optionalText(input.failureMode, 180),
+    consequence: optionalText(input.consequence, 180),
+    causeHypothesis: optionalText(input.causeHypothesis, 180),
+    frequency: optionalText(input.frequency, 100)
+  };
+  return Object.values(diagnosis).some(Boolean) ? diagnosis : undefined;
+}
+
+function painFields(input, existing = {}) {
+  const scope = painScope(
+    input.scope ??
+      existing.scope ??
+      (existing.state === "desired" ? "desired" : "current")
+  );
+  const editorial = existing.provenance === "post_call_editorial" || input.provenance === "post_call_editorial";
+  const certainty = editorial
+    ? "hypothesis"
+    : input.certainty ??
+      existing.certainty ??
+      (existing.state === "unknown"
+        ? "unknown"
+        : existing.state === "hypothesis"
+          ? "hypothesis"
+          : "asserted");
+  const categoryInput =
+    input.category === undefined ? existing.category : input.category;
+  const category = PAIN_CATEGORIES.has(categoryInput)
+    ? categoryInput
+    : undefined;
+  const targetEdgeIds = uniqueIds(input.targetEdgeIds ?? existing.targetEdgeIds);
+  const diagnosis = diagnosisFor(input.diagnosis ?? existing.diagnosis);
+  const result = {
+    ...existing,
+    description: optionalText(input.description ?? existing.description, 180) ?? existing.description,
+    targetNodeIds: uniqueIds(input.targetNodeIds ?? existing.targetNodeIds),
+    ...(targetEdgeIds.length > 0
+      ? { targetEdgeIds }
+      : {}),
+    ...(category ? { category } : {}),
+    ...(diagnosis ? { diagnosis } : {}),
+    severity: painSeverity(input.severity ?? existing.severity),
+    scope,
+    state: editorial ? "hypothesis" : stateFor(scope, certainty),
+    certainty
+  };
+  if (!targetEdgeIds.length) delete result.targetEdgeIds;
+  if (!category) delete result.category;
+  if (!diagnosis) delete result.diagnosis;
+  return result;
+}
+
+const supportsScope = (entity, scope) => {
+  const values = scopeValues(entity);
+  return scope === "both"
+    ? values.includes("current") && values.includes("desired")
+    : values.includes(scope);
+};
+
+function assertPainTargets(graph, pain) {
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edgesById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  for (const nodeId of pain.targetNodeIds) {
+    const node = nodesById.get(nodeId);
+    if (!node || !supportsScope(node, pain.scope)) {
+      throw new Error(`Choose affected elements available in the ${pain.scope} scope.`);
+    }
+  }
+  for (const edgeId of pain.targetEdgeIds ?? []) {
+    const edge = edgesById.get(edgeId);
+    if (!edge || !supportsScope(edge, pain.scope)) {
+      throw new Error(`Choose connections available in the ${pain.scope} scope.`);
+    }
+    if (
+      !pain.targetNodeIds.includes(edge.from) &&
+      !pain.targetNodeIds.includes(edge.to)
+    ) {
+      throw new Error("Each affected connection must touch an affected element.");
+    }
+  }
+}
+
+/** Adds an explicitly editorial, evidence-free hypothesis without changing meeting evidence. */
+export function addGraphPain(graph, input = {}, idFactory) {
+  const next = clone(graph);
+  const targetNodeIds = uniqueIds(input.targetNodeIds);
+  if (targetNodeIds.length === 0) throw new Error("Choose at least one affected element.");
+  const scope = painScope(input.scope);
+  const pain = {
+    ...painFields({ ...input, targetNodeIds, provenance: "post_call_editorial", scope }, {
+      id: entityId("pain", idFactory),
+      description: "New review hypothesis",
+      severity: "medium",
+      scope,
+      provenance: "post_call_editorial",
+      evidenceUtteranceIds: []
+    }),
+    provenance: "post_call_editorial",
+    certainty: "hypothesis",
+    state: "hypothesis",
+    evidenceUtteranceIds: []
+  };
+  assertPainTargets(next, pain);
+  next.pains.push(pain);
+  return { graph: next, entityId: next.pains.at(-1).id };
+}
+
+/** Edits a finding while deliberately retaining its provenance and evidence. */
+export function updateGraphPain(graph, painId, input = {}) {
+  const next = clone(graph);
+  const index = next.pains.findIndex((pain) => pain.id === painId);
+  if (index < 0) throw new Error("That pain point is no longer available.");
+  const existing = next.pains[index];
+  const updated = painFields(input, existing);
+  if (updated.targetNodeIds.length === 0) throw new Error("Choose at least one affected element.");
+  assertPainTargets(next, updated);
+  next.pains[index] = {
+    ...updated,
+    id: existing.id,
+    provenance: existing.provenance,
+    evidenceUtteranceIds: [...(existing.evidenceUtteranceIds ?? [])]
+  };
+  return next;
+}
+
+export function removeGraphPain(graph, painId) {
+  const next = clone(graph);
+  const pain = next.pains.find((item) => item.id === painId);
+  if (pain && pain.provenance !== "post_call_editorial") {
+    throw new Error(
+      "Meeting-derived findings must be marked unsupported instead of removed."
+    );
+  }
+  next.pains = next.pains.filter((pain) => pain.id !== painId);
+  return next;
+}
+
 export function isPostCallReviewPath(pathname = globalThis.location?.pathname ?? "") {
   return /^\/review\/[A-Za-z0-9_-]+\/?$/.test(pathname);
 }

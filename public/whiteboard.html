@@ -294,6 +294,36 @@
               </label>
             </div>
           </details>
+          <details class="review-findings" id="review-findings" hidden>
+            <summary>Findings and questions</summary>
+            <p class="review-findings-intro">Review the friction Scout heard separately from the map. Meeting evidence is retained; new hypotheses are clearly labelled.</p>
+            <div class="review-findings-list" id="review-findings-list" aria-live="polite"></div>
+            <p class="review-question" id="review-suggested-question" hidden></p>
+            <form class="pain-editor" id="pain-editor" hidden>
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Pain point</p>
+                  <h3 id="pain-editor-title">Review finding</h3>
+                </div>
+                <button type="button" class="editor-delete" id="pain-editor-delete">Remove finding</button>
+              </div>
+              <label><span>Description</span><textarea id="pain-editor-description" maxlength="180" rows="2" required></textarea></label>
+              <div class="pain-editor-grid">
+                <label><span>Severity</span><select id="pain-editor-severity"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+                <label><span>Scope</span><select id="pain-editor-scope"><option value="current">Current</option><option value="desired">Target</option><option value="both">Both</option></select></label>
+                <label><span>Category</span><select id="pain-editor-category"><option value="">Uncategorised</option><option value="delay">Delay</option><option value="rework">Rework</option><option value="error">Error</option><option value="cost">Cost</option><option value="risk">Risk</option><option value="capacity">Capacity</option><option value="experience">Experience</option><option value="interoperability">Interoperability</option><option value="other">Other</option></select></label>
+              </div>
+              <label><span>Affected elements</span><select id="pain-editor-nodes" multiple size="4" required></select></label>
+              <label><span>Affected connections (optional)</span><select id="pain-editor-edges" multiple size="3"></select></label>
+              <div class="pain-editor-grid">
+                <label><span>Failure mode</span><input id="pain-editor-failure-mode" maxlength="180" /></label>
+                <label><span>Consequence</span><input id="pain-editor-consequence" maxlength="180" /></label>
+                <label><span>Cause hypothesis</span><input id="pain-editor-cause" maxlength="180" /></label>
+                <label><span>Frequency</span><input id="pain-editor-frequency" maxlength="100" /></label>
+              </div>
+            </form>
+            <button type="button" class="secondary-action" id="review-add-pain">Add post-call hypothesis</button>
+          </details>
           <details class="outline-disclosure">
             <summary>Diagram outline</summary>
             <div class="view-outline" id="view-outline" aria-label="Accessible diagram outline"></div>

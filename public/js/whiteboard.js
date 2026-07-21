@@ -25,14 +25,17 @@ import {
   POST_CALL_NODE_KINDS,
   addGraphEdge,
   addGraphNode,
+  addGraphPain,
   isPostCallReviewPath,
   loadPostCallReview,
   postCallReviewView,
   removeGraphEdge,
   removeGraphNode,
+  removeGraphPain,
   savePostCallReview,
   updateGraphEdge,
-  updateGraphNode
+  updateGraphNode,
+  updateGraphPain
 } from "./post-call-editor.js";
 import {
   markQuestionAsked,
@@ -81,6 +84,23 @@ const elements = {
   reviewNotes: bySelector("#review-notes"),
   reviewTopic: bySelector("#review-topic"),
   reviewNotesText: bySelector("#review-notes-text"),
+  reviewFindings: bySelector("#review-findings"),
+  reviewFindingsList: bySelector("#review-findings-list"),
+  reviewSuggestedQuestion: bySelector("#review-suggested-question"),
+  reviewAddPain: bySelector("#review-add-pain"),
+  painEditor: bySelector("#pain-editor"),
+  painEditorTitle: bySelector("#pain-editor-title"),
+  painEditorDelete: bySelector("#pain-editor-delete"),
+  painEditorDescription: bySelector("#pain-editor-description"),
+  painEditorSeverity: bySelector("#pain-editor-severity"),
+  painEditorScope: bySelector("#pain-editor-scope"),
+  painEditorCategory: bySelector("#pain-editor-category"),
+  painEditorNodes: bySelector("#pain-editor-nodes"),
+  painEditorEdges: bySelector("#pain-editor-edges"),
+  painEditorFailureMode: bySelector("#pain-editor-failure-mode"),
+  painEditorConsequence: bySelector("#pain-editor-consequence"),
+  painEditorCause: bySelector("#pain-editor-cause"),
+  painEditorFrequency: bySelector("#pain-editor-frequency"),
   elementEditor: bySelector("#element-editor"),
   editorKicker: bySelector("#editor-kicker"),
   editorLabel: bySelector("#editor-label"),
@@ -142,6 +162,8 @@ const unseenViews = new Set();
 let activeView = "process";
 let selectedEntityId;
 let selectedEntityType = "node";
+let selectedFindingId;
+let selectedFindingType;
 let currentSnapshot;
 let streamConnectionState = "connecting";
 let stopStream;
@@ -418,6 +440,8 @@ function selectEntity(entityId) {
 
 function selectGraphItem(entityId, entityType = "node") {
   deleteArmedEntityId = undefined;
+  selectedFindingId = undefined;
+  selectedFindingType = undefined;
   selectedEntityId = entityId;
   selectedEntityType = entityType;
   setInspectorOpen(true);
@@ -509,6 +533,7 @@ function renderReviewChrome() {
     : view.blocker || view.label;
   elements.reviewState.dataset.state = view.blocker ? "blocked" : reviewDirty || !view.approved ? "dirty" : "saved";
   elements.reviewAdd.disabled = !view.editable;
+  elements.reviewAddPain.disabled = !view.editable;
   elements.reviewSave.disabled = !view.editable || (!reviewDirty && view.approved);
   elements.reviewSave.textContent = savingReview
     ? "Saving…"
@@ -850,11 +875,135 @@ function inspectorCopy(projection, entityId) {
 }
 
 function selectedGraphItem() {
-  if (!currentSnapshot || !selectedEntityId) return undefined;
-  const list = selectedEntityType === "edge"
-    ? currentSnapshot.graph.edges
-    : currentSnapshot.graph.nodes;
+  if (!currentSnapshot) return undefined;
+  if (selectedFindingId) {
+    const list = selectedFindingType === "contradiction"
+      ? currentSnapshot.graph.contradictions
+      : currentSnapshot.graph.pains;
+    return list.find((item) => item.id === selectedFindingId);
+  }
+  if (!selectedEntityId) return undefined;
+  const list = selectedEntityType === "edge" ? currentSnapshot.graph.edges : currentSnapshot.graph.nodes;
   return list.find((item) => item.id === selectedEntityId);
+}
+
+function selectedValues(element) {
+  return [...element.selectedOptions].map((option) => option.value);
+}
+
+function renderPainEditor() {
+  const pain = currentSnapshot?.graph?.pains?.find((item) => item.id === selectedFindingId);
+  if (!reviewMode || !pain) {
+    elements.painEditor.hidden = true;
+    return;
+  }
+  elements.painEditor.hidden = false;
+  const editorial = pain.provenance === "post_call_editorial";
+  elements.painEditorTitle.textContent = editorial
+    ? "Post-call hypothesis" : "Meeting-derived pain point";
+  elements.painEditorDelete.textContent = editorial
+    ? "Remove hypothesis"
+    : "Mark unsupported";
+  const editable = postCallReviewView(currentSnapshot, savingReview).editable;
+  const selectedNodes = new Set(pain.targetNodeIds ?? []);
+  const selectedEdges = new Set(pain.targetEdgeIds ?? []);
+  const resolvedPainScope =
+    pain.scope ?? (pain.state === "desired" ? "desired" : "current");
+  const supportsPainScope = (item) => {
+    const scope = item.scope ?? (item.state === "desired" ? "desired" : "current");
+    return resolvedPainScope === "both"
+      ? scope === "both"
+      : scope === "both" || scope === resolvedPainScope;
+  };
+  elements.painEditorNodes.replaceChildren(...currentSnapshot.graph.nodes
+    .filter(supportsPainScope)
+    .map((node) => new Option(node.label, node.id, false, selectedNodes.has(node.id))));
+  elements.painEditorEdges.replaceChildren(...currentSnapshot.graph.edges
+    .filter((edge) =>
+      supportsPainScope(edge) &&
+      (selectedNodes.has(edge.from) || selectedNodes.has(edge.to))
+    )
+    .map((edge) => {
+      const from = currentSnapshot.graph.nodes.find((node) => node.id === edge.from)?.label ?? edge.from;
+      const to = currentSnapshot.graph.nodes.find((node) => node.id === edge.to)?.label ?? edge.to;
+      return new Option(`${from} → ${to}`, edge.id, false, selectedEdges.has(edge.id));
+    }));
+  if (!elements.painEditor.contains(document.activeElement)) {
+    elements.painEditorDescription.value = pain.description ?? "";
+    elements.painEditorSeverity.value = pain.severity ?? "medium";
+    elements.painEditorScope.value = resolvedPainScope;
+    elements.painEditorCategory.value = pain.category ?? "";
+    elements.painEditorFailureMode.value = pain.diagnosis?.failureMode ?? "";
+    elements.painEditorConsequence.value = pain.diagnosis?.consequence ?? "";
+    elements.painEditorCause.value = pain.diagnosis?.causeHypothesis ?? "";
+    elements.painEditorFrequency.value = pain.diagnosis?.frequency ?? "";
+  }
+  for (const control of elements.painEditor.elements) control.disabled = !editable;
+}
+
+function renderReviewFindings() {
+  if (!reviewMode || !currentSnapshot) return;
+  elements.reviewFindings.hidden = false;
+  const items = [
+    ...(currentSnapshot.graph.pains ?? []).map((item) => ({ item, type: "pain", label: "Pain" })),
+    ...(currentSnapshot.graph.contradictions ?? []).map((item) => ({ item, type: "contradiction", label: "Contradiction" }))
+  ];
+  const rows = items.map(({ item, type, label }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "review-finding";
+    button.dataset.findingId = item.id;
+    button.dataset.findingType = type;
+    button.dataset.selected = String(item.id === selectedFindingId && type === selectedFindingType);
+    button.setAttribute(
+      "aria-pressed",
+      String(item.id === selectedFindingId && type === selectedFindingType)
+    );
+    const copy = document.createElement("span");
+    copy.className = "review-finding-copy";
+    const title = document.createElement("strong");
+    title.textContent = type === "pain" ? item.description : item.description;
+    const detail = document.createElement("span");
+    detail.textContent = type === "pain"
+      ? `${item.severity ?? "medium"} · ${item.category ?? "uncategorised"}${item.provenance === "post_call_editorial" ? " · hypothesis" : ""}`
+      : "Evidence needs reconciliation";
+    copy.append(title, detail);
+    const meta = document.createElement("span");
+    meta.className = "review-finding-meta";
+    meta.textContent = label;
+    button.append(copy, meta);
+    button.addEventListener("click", () => {
+      selectedFindingId = item.id;
+      selectedFindingType = type;
+      selectedEntityId = undefined;
+      selectedEntityType = "node";
+      for (const frame of elements.frames.values()) {
+        for (const element of frame.querySelectorAll(
+          "[data-entity-id], [data-edge-id]"
+        )) {
+          element.dataset.selected = "false";
+        }
+      }
+      renderActiveMetadata();
+      requestAnimationFrame(() => {
+        elements.reviewFindingsList
+          .querySelector(`[data-finding-id="${CSS.escape(item.id)}"]`)
+          ?.focus();
+      });
+    });
+    return button;
+  });
+  if (rows.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "review-findings-intro";
+    empty.textContent = "No pain points or contradictions are currently recorded.";
+    rows.push(empty);
+  }
+  elements.reviewFindingsList.replaceChildren(...rows);
+  const question = currentSnapshot.graph.suggestedQuestion?.text?.trim();
+  elements.reviewSuggestedQuestion.hidden = !question;
+  elements.reviewSuggestedQuestion.textContent = question ? `Suggested question: ${question}` : "";
+  renderPainEditor();
 }
 
 function renderEvidencePanel() {
@@ -987,6 +1136,7 @@ function renderActiveMetadata() {
   }
   renderOutline(projection);
   renderEvidencePanel();
+  renderReviewFindings();
 }
 
 function setZoom(next) {
@@ -1190,6 +1340,7 @@ function applyEditorFields() {
     );
   } catch (error) {
     showRenderError(activeView, error);
+    renderPainEditor();
   }
 }
 
@@ -1249,6 +1400,7 @@ function applySelectedEdgeFields({ reverse = false } = {}) {
     }));
   } catch (error) {
     showRenderError(activeView, error);
+    renderPainEditor();
   }
 }
 
@@ -1285,7 +1437,7 @@ function updateItemAnnotation() {
     delete annotations[item.id];
   } else {
     annotations[item.id] = {
-      targetType: selectedEntityType,
+      targetType: selectedFindingType ?? selectedEntityType,
       disposition: elements.editorDispositionValue.value,
       note
     };
@@ -1298,6 +1450,151 @@ function updateItemAnnotation() {
 }
 elements.editorDispositionValue.addEventListener("change", updateItemAnnotation);
 elements.editorItemNote.addEventListener("change", updateItemAnnotation);
+
+function applyPainFields(event) {
+  if (!currentSnapshot || selectedFindingType !== "pain" || !selectedFindingId) return;
+  const existing = currentSnapshot.graph.pains.find((item) => item.id === selectedFindingId);
+  const annotation = currentSnapshot.postCall?.annotations?.[selectedFindingId];
+  if (
+    existing?.provenance !== "post_call_editorial" &&
+    (annotation?.disposition !== "amended" || !annotation.note?.trim())
+  ) {
+    elements.editorItemNote.setCustomValidity("Mark this meeting finding as amended and add a note before changing it.");
+    elements.editorItemNote.reportValidity();
+    elements.editorItemNote.focus();
+    return;
+  }
+  elements.editorItemNote.setCustomValidity("");
+  try {
+    const nextScope = elements.painEditorScope.value;
+    let targetNodeIds = selectedValues(elements.painEditorNodes);
+    let targetEdgeIds = selectedValues(elements.painEditorEdges);
+    if (event?.target === elements.painEditorScope) {
+      const compatibleNodes = currentSnapshot.graph.nodes.filter((node) => {
+        const scope =
+          node.scope ?? (node.state === "desired" ? "desired" : "current");
+        return nextScope === "both"
+          ? scope === "both"
+          : scope === "both" || scope === nextScope;
+      });
+      elements.painEditorNodes.replaceChildren(
+        ...compatibleNodes.map(
+          (node) => new Option(node.label, node.id, false, false)
+        )
+      );
+      elements.painEditorEdges.replaceChildren();
+      elements.painEditorNodes.setCustomValidity(
+        "Choose the affected elements for the new scope."
+      );
+      elements.painEditorNodes.focus();
+      return;
+    }
+    elements.painEditorNodes.setCustomValidity("");
+    updateReviewGraph(updateGraphPain(currentSnapshot.graph, selectedFindingId, {
+      description: elements.painEditorDescription.value,
+      severity: elements.painEditorSeverity.value,
+      scope: nextScope,
+      category: elements.painEditorCategory.value,
+      targetNodeIds,
+      targetEdgeIds,
+      diagnosis: {
+        failureMode: elements.painEditorFailureMode.value,
+        consequence: elements.painEditorConsequence.value,
+        causeHypothesis: elements.painEditorCause.value,
+        frequency: elements.painEditorFrequency.value
+      }
+    }));
+  } catch (error) {
+    showRenderError(activeView, error);
+    renderPainEditor();
+  }
+}
+
+for (const control of [
+  elements.painEditorDescription,
+  elements.painEditorSeverity,
+  elements.painEditorScope,
+  elements.painEditorCategory,
+  elements.painEditorNodes,
+  elements.painEditorEdges,
+  elements.painEditorFailureMode,
+  elements.painEditorConsequence,
+  elements.painEditorCause,
+  elements.painEditorFrequency
+]) control.addEventListener("change", applyPainFields);
+
+elements.reviewAddPain.addEventListener("click", () => {
+  if (!currentSnapshot) return;
+  const scope = scopes[activeView];
+  const supportsScope = (node) => {
+    const nodeScope =
+      node.scope ?? (node.state === "desired" ? "desired" : "current");
+    return nodeScope === "both" || nodeScope === scope;
+  };
+  const selectedNode = currentSnapshot.graph.nodes.find(
+    (node) =>
+      node.id === selectedEntityId &&
+      selectedEntityType === "node" &&
+      supportsScope(node)
+  );
+  const targetNodeId =
+    selectedNode?.id ??
+    currentSnapshot.graph.nodes.find(supportsScope)?.id;
+  if (!targetNodeId) {
+    showRenderError(activeView, new Error("Add an element before creating a pain point."));
+    return;
+  }
+  try {
+    const result = addGraphPain(currentSnapshot.graph, {
+      targetNodeIds: [targetNodeId],
+      scope
+    });
+    selectedFindingId = result.entityId;
+    selectedFindingType = "pain";
+    updateReviewGraph(result.graph);
+  } catch (error) {
+    showRenderError(activeView, error);
+  }
+});
+
+elements.painEditorDelete.addEventListener("click", () => {
+  if (!currentSnapshot || selectedFindingType !== "pain" || !selectedFindingId) return;
+  const pain = currentSnapshot.graph.pains.find(
+    (item) => item.id === selectedFindingId
+  );
+  const annotations = cloneValue(currentSnapshot.postCall?.annotations ?? {});
+  if (pain?.provenance !== "post_call_editorial") {
+    const note = elements.editorItemNote.value.trim();
+    if (!note) {
+      elements.editorItemNote.setCustomValidity(
+        "Add a note explaining why this meeting finding is unsupported."
+      );
+      elements.editorItemNote.reportValidity();
+      elements.editorItemNote.focus();
+      return;
+    }
+    elements.editorItemNote.setCustomValidity("");
+    annotations[selectedFindingId] = {
+      targetType: "pain",
+      disposition: "unsupported",
+      note
+    };
+    applyReviewState({
+      graph: currentSnapshot.graph,
+      notes: currentSnapshot.postCall?.notes ?? "",
+      annotations
+    });
+    return;
+  }
+  delete annotations[selectedFindingId];
+  applyReviewState({
+    graph: removeGraphPain(currentSnapshot.graph, selectedFindingId),
+    notes: currentSnapshot.postCall?.notes ?? "",
+    annotations
+  });
+  selectedFindingId = undefined;
+  selectedFindingType = undefined;
+});
 
 function applyEditorTextField(field) {
   if (!reviewMode || !selectedEntityId || !currentSnapshot) return;
@@ -1507,6 +1804,7 @@ async function start() {
       setInspectorOpen(false);
       elements.reviewToolbar.hidden = false;
       elements.reviewNotes.hidden = false;
+      elements.reviewFindings.hidden = false;
       elements.reviewHandoff.href = `/handoff/${encodeURIComponent(sessionId)}`;
       streamConnectionState = "live";
       renderSnapshot(await loadPostCallReview(sessionId));
