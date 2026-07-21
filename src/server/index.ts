@@ -271,7 +271,8 @@ export const createScoutRuntime = (
     new CodexMeetingAnalyzer({
       client: new CodexAppServerClient({ command: config.codex.binary }),
       model: config.codex.model,
-      effort: config.codex.reasoningEffort
+      effort: config.codex.reasoningEffort,
+      structuredDiagnosis: config.codex.structuredDiagnosis ?? false
     });
   const coordinator = new AnalysisCoordinator(
     store,

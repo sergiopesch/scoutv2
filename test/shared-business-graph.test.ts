@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  BusinessGraphDiagnosticModelOutputSchema,
   BusinessGraphModelOutputSchema,
   BusinessGraphSchema,
   validateCustomerEvidence,
@@ -494,6 +495,155 @@ describe("multi-view BusinessGraph foundation", () => {
     );
   });
 
+  it("adds optional evidence-backed diagnosis without changing the legacy model contract", () => {
+    const graph = baseGraph();
+    graph.nodes = [
+      node("crm", { architecture: { kind: "software_system" } }),
+      node("erp", { architecture: { kind: "software_system" } })
+    ].map((item) => ({
+      ...item,
+      scope: "current" as const,
+      certainty: "asserted" as const
+    }));
+    graph.edges = [
+      {
+        id: "crm-to-erp",
+        from: "crm",
+        to: "erp",
+        kind: "feeds",
+        state: "current",
+        scope: "current",
+        certainty: "asserted",
+        confidence: 0.95,
+        facets: {
+          architecture: {
+            kind: "connection",
+            interaction: "batch",
+            dataDescription: "customer records"
+          }
+        },
+        evidenceUtteranceIds: ["utt-1"]
+      }
+    ];
+    graph.pains = [
+      {
+        id: "sync-failures",
+        description: "Customer records fail to synchronize",
+        targetNodeIds: ["crm", "erp"],
+        targetEdgeIds: ["crm-to-erp"],
+        category: "interoperability",
+        diagnosis: {
+          failureMode: "The nightly transfer drops changed records",
+          consequence: "Operations re-enters customer updates",
+          causeHypothesis: "The batch export may omit late updates",
+          frequency: "Nightly"
+        },
+        severity: "high",
+        state: "current",
+        scope: "current",
+        certainty: "asserted",
+        evidenceUtteranceIds: ["utt-1"]
+      }
+    ];
+
+    expect(BusinessGraphSchema.safeParse(graph).success).toBe(true);
+    expect(validateGraphReferences(graph, new Set(["utt-1"]))).toEqual([]);
+    expect(validateGraphSemantics(graph)).toEqual([]);
+    expect(BusinessGraphModelOutputSchema.safeParse(graph).success).toBe(false);
+    expect(
+      BusinessGraphDiagnosticModelOutputSchema.safeParse(graph).success
+    ).toBe(true);
+  });
+
+  it("rejects duplicate, missing, and cross-scope pain edge targets", () => {
+    const graph = baseGraph();
+    graph.nodes = [
+      {
+        ...node("current-system", {
+          architecture: { kind: "software_system" }
+        }),
+        scope: "current"
+      },
+      {
+        ...node("future-system", {
+          architecture: { kind: "software_system" }
+        }),
+        state: "desired",
+        scope: "desired"
+      }
+    ];
+    graph.edges = [
+      {
+        id: "future-feed",
+        from: "future-system",
+        to: "future-system",
+        kind: "feeds",
+        state: "desired",
+        scope: "desired",
+        certainty: "asserted",
+        confidence: 0.9,
+        evidenceUtteranceIds: ["utt-1"]
+      }
+    ];
+    graph.pains = [
+      {
+        id: "current-interface-pain",
+        description: "The current integration is unreliable",
+        targetNodeIds: ["current-system"],
+        targetEdgeIds: ["future-feed", "future-feed"],
+        severity: "high",
+        state: "current",
+        scope: "current",
+        certainty: "asserted",
+        evidenceUtteranceIds: ["utt-1"]
+      }
+    ];
+
+    expect(BusinessGraphSchema.safeParse(graph).success).toBe(false);
+    expect(validateGraphSemantics(graph)).toContain(
+      "Pain point current-interface-pain edge target future-feed must exist in current scope."
+    );
+    graph.pains[0]!.targetEdgeIds = ["missing-edge"];
+    expect(validateGraphReferences(graph, new Set(["utt-1"]))).toContain(
+      "Pain point current-interface-pain references a missing edge."
+    );
+  });
+
+  it("rejects pain edge targets disconnected from every node target", () => {
+    const graph = baseGraph();
+    graph.nodes = ["a", "b", "c"].map((id) => ({
+      ...node(id, { architecture: { kind: "software_system" } }),
+      scope: "current" as const,
+      certainty: "asserted" as const
+    }));
+    graph.edges = [{
+      id: "a-to-b",
+      from: "a",
+      to: "b",
+      kind: "feeds",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      confidence: 0.9,
+      evidenceUtteranceIds: ["utt-1"]
+    }];
+    graph.pains = [{
+      id: "disconnected-pain",
+      description: "The interface is unreliable",
+      targetNodeIds: ["c"],
+      targetEdgeIds: ["a-to-b"],
+      severity: "high",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      evidenceUtteranceIds: ["utt-1"]
+    }];
+
+    expect(validateGraphSemantics(graph)).toContain(
+      "Pain point disconnected-pain edge target a-to-b must connect to one of its node targets."
+    );
+  });
+
   it("rejects empty facets and duplicate evidence or targets", () => {
     const graph = baseGraph();
     graph.nodes = [
@@ -531,9 +681,29 @@ describe("multi-view BusinessGraph foundation", () => {
       facets: { architecture: { kind: "service" } },
       evidenceUtteranceIds: []
     }];
+    graph.pains = [
+      {
+        id: "editorial-pain",
+        description: "This interface may need additional validation",
+        targetNodeIds: ["editorial-service"],
+        category: "interoperability",
+        diagnosis: {
+          causeHypothesis: "The proposed service may lack a retry boundary"
+        },
+        severity: "medium",
+        state: "hypothesis",
+        scope: "desired",
+        certainty: "hypothesis",
+        provenance: "post_call_editorial",
+        evidenceUtteranceIds: []
+      }
+    ];
     expect(BusinessGraphSchema.safeParse(graph).success).toBe(true);
     expect(validateCustomerEvidence(graph, new Set(["utt-1"]))).toContain(
       "editorial-service cannot use post-call editorial provenance during live analysis."
+    );
+    expect(validateCustomerEvidence(graph, new Set(["utt-1"]))).toContain(
+      "editorial-pain cannot use post-call editorial provenance during live analysis."
     );
     expect(validateCustomerEvidence(graph, new Set(["utt-1"]), {
       allowPostCallEditorial: true
@@ -552,6 +722,18 @@ describe("multi-view BusinessGraph foundation", () => {
         privateNotes: { evidenceUtteranceIds: ["utt-private"] }
       } as BusinessGraph["nodes"][number]
     ];
+    graph.pains = [{
+      id: "integration-pain",
+      description: "The CRM integration is unreliable",
+      targetNodeIds: ["crm"],
+      diagnosis: {
+        failureMode: "Records are dropped",
+        evidenceUtteranceIds: ["secret-evidence"]
+      },
+      severity: "high",
+      state: "current",
+      evidenceUtteranceIds: ["utt-1"]
+    } as BusinessGraph["pains"][number]];
     const snapshot = {
       id: "session-private",
       meetingUrl: "https://meeting.example/private",

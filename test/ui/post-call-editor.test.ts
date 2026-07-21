@@ -4,6 +4,7 @@ import {
   addGraphNode,
   isPostCallReviewPath,
   postCallReviewView,
+  removeGraphEdge,
   removeGraphNode,
   savePostCallReview,
   updateGraphEdge,
@@ -140,7 +141,8 @@ describe("post-call diagram editor", () => {
     source.pains.push({
       id: "pain",
       description: "Slow allocation",
-      targetNodeIds: ["orders-api"],
+      targetNodeIds: ["orders-api", "worker"],
+      targetEdgeIds: ["connection"],
       severity: "high",
       state: "current",
       scope: "current",
@@ -151,8 +153,57 @@ describe("post-call diagram editor", () => {
     const removed = removeGraphNode(source, "orders-api");
     expect(removed.nodes.map((node: BusinessGraph["nodes"][number]) => node.id)).toEqual(["worker"]);
     expect(removed.edges).toEqual([]);
-    expect(removed.pains).toEqual([]);
+    expect(removed.pains).toEqual([
+      expect.objectContaining({
+        id: "pain",
+        targetNodeIds: ["worker"]
+      })
+    ]);
+    expect(removed.pains[0]).not.toHaveProperty("targetEdgeIds");
     expect(removed.nodes[0].facets.architecture.parentBoundaryNodeIdByScope).toBeUndefined();
+    expect(validateGraphSemantics(removed)).toEqual([]);
+  });
+
+  it("cleans pain edge targets when a connection is removed directly", () => {
+    const source = graph();
+    source.nodes.push({
+      id: "worker",
+      kind: "system",
+      label: "Worker",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      confidence: 1,
+      facets: { architecture: { kind: "worker" } },
+      evidenceUtteranceIds: ["utt-1"]
+    });
+    source.edges.push({
+      id: "connection",
+      from: "orders-api",
+      to: "worker",
+      kind: "depends_on",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      confidence: 1,
+      facets: { architecture: { kind: "connection" } },
+      evidenceUtteranceIds: ["utt-1"]
+    });
+    source.pains.push({
+      id: "pain",
+      description: "Slow allocation",
+      targetNodeIds: ["orders-api", "worker"],
+      targetEdgeIds: ["connection"],
+      severity: "high",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      evidenceUtteranceIds: ["utt-1"]
+    });
+
+    const removed = removeGraphEdge(source, "connection");
+    expect(removed.edges).toEqual([]);
+    expect(removed.pains[0]).not.toHaveProperty("targetEdgeIds");
     expect(validateGraphSemantics(removed)).toEqual([]);
   });
 
@@ -183,6 +234,52 @@ describe("post-call diagram editor", () => {
     });
     const updated = updateGraphNode(source, "orders-api", "architecture", { scope: "desired" });
     expect(updated.edges[0]).toMatchObject({ scope: "desired", state: "desired" });
+    expect(validateGraphSemantics(updated)).toEqual([]);
+  });
+
+  it("resizes an edge-targeted pain when the other endpoint narrows the edge scope", () => {
+    const source = graph();
+    source.nodes[0]!.scope = "both";
+    source.nodes.push({
+      id: "worker",
+      kind: "system",
+      label: "Worker",
+      state: "current",
+      scope: "both",
+      certainty: "asserted",
+      confidence: 1,
+      facets: { architecture: { kind: "worker" } },
+      evidenceUtteranceIds: ["utt-1"]
+    });
+    source.edges.push({
+      id: "connection",
+      from: "orders-api",
+      to: "worker",
+      kind: "depends_on",
+      state: "current",
+      scope: "both",
+      certainty: "asserted",
+      confidence: 1,
+      facets: { architecture: { kind: "connection" } },
+      evidenceUtteranceIds: ["utt-1"]
+    });
+    source.pains.push({
+      id: "pain",
+      description: "Slow allocation",
+      targetNodeIds: ["worker"],
+      targetEdgeIds: ["connection"],
+      severity: "high",
+      state: "current",
+      scope: "both",
+      certainty: "asserted",
+      evidenceUtteranceIds: ["utt-1"]
+    });
+
+    const updated = updateGraphNode(source, "orders-api", "architecture", {
+      scope: "current"
+    });
+    expect(updated.edges[0]).toMatchObject({ scope: "current" });
+    expect(updated.pains[0]).toMatchObject({ scope: "current" });
     expect(validateGraphSemantics(updated)).toEqual([]);
   });
 

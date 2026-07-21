@@ -395,6 +395,9 @@ describe("CodexMeetingAnalyzer", () => {
     expect(threadStart?.params.baseInstructions).not.toContain(
       "include its view in viewKinds"
     );
+    expect(threadStart?.params.baseInstructions).not.toContain(
+      "STRUCTURED DIAGNOSIS"
+    );
 
     const turnStart = client.requests.find(
       (request) => request.method === "turn/start"
@@ -439,6 +442,11 @@ describe("CodexMeetingAnalyzer", () => {
             required?: string[];
           };
         };
+        pains?: {
+          items?: {
+            properties?: Record<string, unknown>;
+          };
+        };
       };
     };
     expect(outputSchema.properties?.edges?.items?.required).toContain("label");
@@ -454,6 +462,9 @@ describe("CodexMeetingAnalyzer", () => {
     expect(outputSchema.properties?.nodes?.items?.required).not.toContain(
       "viewKinds"
     );
+    expect(
+      outputSchema.properties?.pains?.items?.properties
+    ).not.toHaveProperty("targetEdgeIds");
     expect(
       outputSchema.properties?.topic?.properties?.evidenceUtteranceIds?.minItems
     ).toBe(1);
@@ -474,6 +485,151 @@ describe("CodexMeetingAnalyzer", () => {
     expect(client.requests[0]?.method).toBe("mcpServerStatus/list");
     await analyzer.close();
     expect(client.closed).toBe(true);
+  });
+
+  it("opts into structured interoperability diagnosis without changing the default contract", async () => {
+    const client = new FakeAnalyzerClient();
+    const diagnosticGraph: BusinessGraph = {
+      ...structuredClone(graph),
+      pains: [
+        {
+          id: "export-breakage",
+          description: "The export drops changed records",
+          targetNodeIds: ["hubspot", "spreadsheet"],
+          targetEdgeIds: ["hubspot-to-sheet"],
+          category: "interoperability",
+          diagnosis: {
+            failureMode: "Changed records are absent from the Friday export",
+            consequence: "Sales re-enters records manually",
+            causeHypothesis: "The export may use a stale cutoff",
+            frequency: "Every Friday"
+          },
+          severity: "high",
+          state: "current",
+          scope: "current",
+          certainty: "asserted",
+          evidenceUtteranceIds: [utterance.id]
+        }
+      ]
+    };
+    client.turnResultText = JSON.stringify(diagnosticGraph);
+    const analyzer = new CodexMeetingAnalyzer({
+      client,
+      turnTimeoutMs: 2_000,
+      structuredDiagnosis: true
+    });
+
+    await expect(analyzer.analyze(analyzeInput())).resolves.toMatchObject({
+      graph: diagnosticGraph
+    });
+
+    const threadStart = client.requests.find(
+      (request) => request.method === "thread/start"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "STRUCTURED DIAGNOSIS"
+    );
+    expect(threadStart?.params.baseInstructions).toContain(
+      "Never invent costs, frequencies, causes, priorities, or impacts"
+    );
+    const turnStart = client.requests.find(
+      (request) => request.method === "turn/start"
+    );
+    const outputSchema = turnStart?.params.outputSchema as {
+      properties?: {
+        pains?: {
+          items?: {
+            required?: string[];
+            properties?: Record<string, unknown>;
+          };
+        };
+      };
+    };
+    expect(outputSchema.properties?.pains?.items?.required).toEqual(
+      expect.arrayContaining([
+        "targetEdgeIds",
+        "category",
+        "diagnosis",
+        "provenance"
+      ])
+    );
+    expect(outputSchema.properties?.pains?.items?.properties).toHaveProperty(
+      "targetEdgeIds"
+    );
+    await analyzer.close();
+  });
+
+  it("normalizes nullable diagnosis leaves without discarding the analysis turn", async () => {
+    const client = new FakeAnalyzerClient();
+    const pain = {
+      id: "export-breakage",
+      description: "The export drops changed records",
+      targetNodeIds: ["hubspot", "spreadsheet"],
+      targetEdgeIds: ["hubspot-to-sheet"],
+      category: "interoperability",
+      diagnosis: {
+        failureMode: null,
+        consequence: null,
+        causeHypothesis: null,
+        frequency: null
+      },
+      severity: "high",
+      state: "current",
+      scope: "current",
+      certainty: "asserted",
+      provenance: null,
+      evidenceUtteranceIds: [utterance.id]
+    };
+    client.turnResultText = JSON.stringify({
+      ...structuredClone(graph),
+      pains: [pain]
+    });
+    const analyzer = new CodexMeetingAnalyzer({
+      client,
+      turnTimeoutMs: 2_000,
+      structuredDiagnosis: true
+    });
+
+    const result = await analyzer.analyze(analyzeInput());
+    expect(result.graph.pains[0]).not.toHaveProperty("diagnosis");
+    await analyzer.close();
+  });
+
+  it("keeps a partial structured diagnosis after nullable leaves are removed", async () => {
+    const client = new FakeAnalyzerClient();
+    client.turnResultText = JSON.stringify({
+      ...structuredClone(graph),
+      pains: [{
+        id: "export-breakage",
+        description: "The export drops changed records",
+        targetNodeIds: ["hubspot", "spreadsheet"],
+        targetEdgeIds: ["hubspot-to-sheet"],
+        category: "interoperability",
+        diagnosis: {
+          failureMode: "Changed records are absent from the export",
+          consequence: null,
+          causeHypothesis: null,
+          frequency: null
+        },
+        severity: "high",
+        state: "current",
+        scope: "current",
+        certainty: "asserted",
+        provenance: null,
+        evidenceUtteranceIds: [utterance.id]
+      }]
+    });
+    const analyzer = new CodexMeetingAnalyzer({
+      client,
+      turnTimeoutMs: 2_000,
+      structuredDiagnosis: true
+    });
+
+    const result = await analyzer.analyze(analyzeInput());
+    expect(result.graph.pains[0]?.diagnosis).toEqual({
+      failureMode: "Changed records are absent from the export"
+    });
+    await analyzer.close();
   });
 
   it("preserves transcript chronology and roles while limiting citable IDs to customers", async () => {

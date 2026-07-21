@@ -226,6 +226,11 @@ const cleanPlacement = (placement, removedId) => {
 
 export function removeGraphNode(graph, nodeId) {
   const next = clone(graph);
+  const removedEdgeIds = new Set(
+    next.edges
+      .filter((edge) => edge.from === nodeId || edge.to === nodeId)
+      .map((edge) => edge.id)
+  );
   next.nodes = next.nodes
     .filter((node) => node.id !== nodeId)
     .map((node) => {
@@ -261,10 +266,20 @@ export function removeGraphNode(graph, nodeId) {
     });
   next.edges = next.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId);
   next.pains = next.pains
-    .map((pain) => ({
-      ...pain,
-      targetNodeIds: pain.targetNodeIds.filter((targetId) => targetId !== nodeId)
-    }))
+    .map((pain) => {
+      const targetEdgeIds = pain.targetEdgeIds?.filter(
+        (targetId) => !removedEdgeIds.has(targetId)
+      );
+      const updated = {
+        ...pain,
+        targetNodeIds: pain.targetNodeIds.filter(
+          (targetId) => targetId !== nodeId
+        )
+      };
+      if (targetEdgeIds?.length) updated.targetEdgeIds = targetEdgeIds;
+      else delete updated.targetEdgeIds;
+      return updated;
+    })
     .filter((pain) => pain.targetNodeIds.length > 0);
   return next;
 }
@@ -281,6 +296,7 @@ export function updateGraphNode(graph, nodeId, viewKind, changes) {
   }
   if (["current", "desired", "both"].includes(changes.scope)) {
     node.scope = changes.scope;
+    const rescaledEdgeIds = new Set();
     for (const edge of next.edges.filter((candidate) => candidate.from === nodeId || candidate.to === nodeId)) {
       const otherId = edge.from === nodeId ? edge.to : edge.from;
       const other = next.nodes.find((candidate) => candidate.id === otherId);
@@ -293,11 +309,22 @@ export function updateGraphNode(graph, nodeId, viewKind, changes) {
       if (currentEdgeScopes.some((scope) => !allowedScopes.has(scope))) {
         edge.scope = allowed;
         edge.state = stateFor(allowed, edge.certainty);
+        rescaledEdgeIds.add(edge.id);
       }
     }
-    for (const pain of next.pains.filter((candidate) => candidate.targetNodeIds.includes(nodeId))) {
-      const targets = pain.targetNodeIds
-        .map((targetId) => next.nodes.find((candidate) => candidate.id === targetId))
+    for (const pain of next.pains.filter(
+      (candidate) =>
+        candidate.targetNodeIds.includes(nodeId) ||
+        candidate.targetEdgeIds?.some((edgeId) => rescaledEdgeIds.has(edgeId))
+    )) {
+      const targets = [
+        ...pain.targetNodeIds.map((targetId) =>
+          next.nodes.find((candidate) => candidate.id === targetId)
+        ),
+        ...(pain.targetEdgeIds ?? []).map((targetId) =>
+          next.edges.find((candidate) => candidate.id === targetId)
+        )
+      ]
         .filter(Boolean);
       const allowed = targets.length > 0 ? commonScope(...targets) : undefined;
       if (!allowed) throw new Error(`Remove or rescope the pain point “${pain.description}” first.`);
@@ -426,6 +453,15 @@ export function addGraphEdge(graph, viewKind, from, to, scope, _evidenceId, idFa
 export function removeGraphEdge(graph, edgeId) {
   const next = clone(graph);
   next.edges = next.edges.filter((edge) => edge.id !== edgeId);
+  next.pains = next.pains.map((pain) => {
+    const targetEdgeIds = pain.targetEdgeIds?.filter(
+      (targetId) => targetId !== edgeId
+    );
+    const updated = { ...pain };
+    if (targetEdgeIds?.length) updated.targetEdgeIds = targetEdgeIds;
+    else delete updated.targetEdgeIds;
+    return updated;
+  });
   return next;
 }
 

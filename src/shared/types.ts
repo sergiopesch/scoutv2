@@ -258,10 +258,28 @@ export interface PainPoint {
   id: string;
   description: string;
   targetNodeIds: string[];
+  targetEdgeIds?: string[];
+  category?:
+    | "delay"
+    | "rework"
+    | "error"
+    | "cost"
+    | "risk"
+    | "capacity"
+    | "experience"
+    | "interoperability"
+    | "other";
+  diagnosis?: {
+    failureMode?: string;
+    consequence?: string;
+    causeHypothesis?: string;
+    frequency?: string;
+  };
   severity: "low" | "medium" | "high";
   state: GraphState;
   scope?: GraphScope;
   certainty?: GraphCertainty;
+  provenance?: "meeting" | "post_call_editorial";
   evidenceUtteranceIds: string[];
 }
 
@@ -337,7 +355,17 @@ export interface WhiteboardGraphEdge {
 }
 
 export interface WhiteboardPainPoint
-  extends Pick<PainPoint, "id" | "description" | "targetNodeIds" | "severity" | "state"> {
+  extends Pick<
+    PainPoint,
+    | "id"
+    | "description"
+    | "targetNodeIds"
+    | "targetEdgeIds"
+    | "category"
+    | "diagnosis"
+    | "severity"
+    | "state"
+  > {
   scope?: GraphScope;
   certainty?: GraphCertainty;
 }
@@ -626,6 +654,28 @@ export const toWhiteboardSnapshot = (
       id: pain.id,
       description: pain.description,
       targetNodeIds: [...pain.targetNodeIds],
+      ...(pain.targetEdgeIds === undefined
+        ? {}
+        : { targetEdgeIds: [...pain.targetEdgeIds] }),
+      ...(pain.category === undefined ? {} : { category: pain.category }),
+      ...(pain.diagnosis === undefined
+        ? {}
+        : {
+            diagnosis: {
+              ...(pain.diagnosis.failureMode === undefined
+                ? {}
+                : { failureMode: pain.diagnosis.failureMode }),
+              ...(pain.diagnosis.consequence === undefined
+                ? {}
+                : { consequence: pain.diagnosis.consequence }),
+              ...(pain.diagnosis.causeHypothesis === undefined
+                ? {}
+                : { causeHypothesis: pain.diagnosis.causeHypothesis }),
+              ...(pain.diagnosis.frequency === undefined
+                ? {}
+                : { frequency: pain.diagnosis.frequency })
+            }
+          }),
       severity: pain.severity,
       state: pain.state,
       ...(pain.scope === undefined ? {} : { scope: pain.scope }),
