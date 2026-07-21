@@ -212,6 +212,53 @@ describe("CodexHandoffLauncher", () => {
     expect(client.closeCount).toBe(1);
   });
 
+  it("prepares but does not start an approved implementation until delivery planning completes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "scout-launch-approved-"));
+    const client = new FakeHandoffClient();
+    const launcher = new CodexHandoffLauncher({ client });
+    const snapshot = endedSession();
+    snapshot.postCall.intervention = {
+      painId: "manual-allocation",
+      desiredOutcome: "Remove duplicate entry",
+      proposal: "Add a bounded allocation adapter",
+      constraints: ["Keep the current process available"],
+      acceptanceCriteria: ["One order requires one entry"],
+      nonGoals: ["Replace allocation"],
+      decision: "approved_for_build"
+    };
+
+    const result = await launcher.launch(root, snapshot);
+    const implementation = result.tasks.find(
+      (task) => task.taskId === "implementation-slice"
+    );
+    expect(implementation).toMatchObject({
+      dependsOn: ["delivery-plan"],
+      status: "prepared"
+    });
+    expect(implementation).not.toHaveProperty("turnId");
+    expect(
+      client.requests.filter((request) => request.method === "thread/fork")
+    ).toHaveLength(2);
+    expect(
+      client.requests.filter((request) => request.method === "turn/start")
+    ).toHaveLength(2);
+    const leadTurn = client.requests
+      .filter((request) => request.method === "turn/start")
+      .at(-1);
+    expect(JSON.stringify(leadTurn?.params.input)).toContain(
+      "prepared but not started"
+    );
+    const preparedGoal = client.requests.find(
+      (request) =>
+        request.method === "thread/goal/set" &&
+        String(request.params.objective).includes("BUILD_BRIEF.md")
+    );
+    expect(preparedGoal?.params.objective).toEqual(
+      expect.stringContaining("Must not: Replace allocation")
+    );
+    await launcher.close();
+  });
+
   it("falls back to the configured default model after a requested model preflight fails", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "scout-launch-model-"));
     const client = new FakeHandoffClient();

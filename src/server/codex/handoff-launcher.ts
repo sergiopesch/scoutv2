@@ -34,11 +34,11 @@ export interface LaunchedCodexThread {
   taskId: string;
   title: string;
   threadId: string;
-  turnId: string;
+  turnId?: string;
   model: string;
   reasoning?: string;
   dependsOn: string[];
-  status: "started";
+  status: "started" | "prepared";
 }
 
 export interface CodexHandoffLaunchResult {
@@ -170,6 +170,11 @@ const taskPrompt = (
     task.dependsOn.length > 0
       ? `Dependencies: ${task.dependsOn.join(", ")}. Record any dependency that is not ready; do not invent its output.`
       : "This outcome has no prerequisite work thread.",
+    ...(task.id === "implementation-slice"
+      ? [
+          "Read BUILD_BRIEF.md first. It is the exact human-approved scope boundary for this prepared thread."
+        ]
+      : []),
     "Read SCOUT_CONTEXT.md, scout-package.json, notes.md, business-graph.json, and only the transcript evidence you need.",
     "Apply review.annotations before deriving any deliverable: exclude unsupported items from the accepted basis without deleting their historical evidence, carry amended reviewer notes forward, and visibly distinguish accepted items.",
     ...task.doneWhen.map((condition) => `Done when: ${condition}`),
@@ -185,7 +190,7 @@ const leadPrompt = (
     "Scout has already created the linked work threads below. Do not create more threads and do not duplicate their outcome work.",
     ...tasks.map(
       (task) =>
-        `- ${task.title}: thread ${task.threadId}; output deliverables/${task.taskId}/; dependencies ${task.dependsOn.join(", ") || "none"}.`
+        `- ${task.title}: thread ${task.threadId}; ${task.status === "prepared" ? "prepared but not started; continue it only after its dependencies are complete" : "started"}; output deliverables/${task.taskId}/; dependencies ${task.dependsOn.join(", ") || "none"}.`
     ),
     "Create DELIVERY_INDEX.md with this thread index, the evidence boundary, outcome acceptance criteria, dependencies, and a clearly incomplete status for each outcome. Do not claim that an outcome is complete until its artifacts have been reviewed in a later turn.",
     "Do not spawn subagents or additional threads. Do not use plugins or send meeting content outside this workspace."
@@ -332,32 +337,34 @@ export class CodexHandoffLauncher {
           threadId: fork.id,
           name: `${handoff.topic} · ${task.title}`
         });
+        const dependencyGated = task.id === "implementation-slice";
         await client.request("thread/goal/set", {
           threadId: fork.id,
-          objective: task.objective,
+          objective: dependencyGated
+            ? taskPrompt(handoff, task)
+            : task.objective,
           status: "active"
         });
         const effort = selectedEffort(task, preflight.model);
-        const turnResponse = await client.request<TurnResponse>(
-          "turn/start",
-          {
-            threadId: fork.id,
-            input: [textInput(taskPrompt(handoff, task))],
-            cwd: prepared.directory,
-            approvalPolicy: "never",
-            ...(selectedModel ? { model: selectedModel } : {}),
-            ...(effort ? { effort } : {})
-          }
-        );
+        const turnResponse = dependencyGated
+          ? undefined
+          : await client.request<TurnResponse>("turn/start", {
+              threadId: fork.id,
+              input: [textInput(taskPrompt(handoff, task))],
+              cwd: prepared.directory,
+              approvalPolicy: "never",
+              ...(selectedModel ? { model: selectedModel } : {}),
+              ...(effort ? { effort } : {})
+            });
         launchedTasks.push({
           taskId: task.id,
           title: task.title,
           threadId: fork.id,
-          turnId: parseTurnId(turnResponse),
+          ...(turnResponse ? { turnId: parseTurnId(turnResponse) } : {}),
           model: fork.model,
           ...(effort ? { reasoning: effort } : {}),
           dependsOn: [...task.dependsOn],
-          status: "started"
+          status: dependencyGated ? "prepared" : "started"
         });
       }
 

@@ -207,12 +207,50 @@ const specialistPlan = (
   return plan;
 };
 
+const approvedImplementationTask = (
+  snapshot: SessionSnapshot
+): HandoffTask | undefined => {
+  const intervention = snapshot.postCall.intervention;
+  if (intervention?.decision !== "approved_for_build") return undefined;
+
+  return task({
+    id: "implementation-slice",
+    title: "Authorized implementation slice",
+    objective: intervention.proposal,
+    model: "gpt-5.6-sol",
+    reasoning: "xhigh",
+    plugins: [],
+    dependsOn: ["delivery-plan"],
+    doneWhen: [
+      ...intervention.constraints.map((item) => `Constraint: ${item}`),
+      ...intervention.acceptanceCriteria.map(
+        (item) => `Acceptance criterion: ${item}`
+      ),
+      ...intervention.nonGoals.map((item) => `Must not: ${item}`),
+      "Implement only the approved proposal after the delivery plan is ready; leave every non-goal out of scope.",
+      "Work only inside the private handoff workspace. Do not mutate an external repository, merge, push, deploy, install plugins, or make network calls."
+    ]
+  });
+};
+
 export const buildCodexHandoffPackage = (
   snapshot: SessionSnapshot
 ): CodexHandoffPackage => {
   const plan = specialistPlan(snapshot);
   const tasks = plan.map(({ task: item }) => item);
   const outcomes = plan.map(({ outcome }) => outcome);
+  const implementationTask = approvedImplementationTask(snapshot);
+  if (implementationTask) {
+    tasks.push(implementationTask);
+    outcomes.push({
+      id: "implementation-slice",
+      title: "Authorized implementation slice",
+      deliverable:
+        "A bounded local implementation artifact satisfying the approved acceptance criteria",
+      guardrail:
+        "Do not exceed the approved proposal, constraints, or non-goals; do not mutate external systems."
+    });
+  }
 
   return {
     schemaVersion: HANDOFF_SCHEMA_VERSION,
@@ -358,6 +396,42 @@ const contextMarkdown = (handoff: CodexHandoffPackage): string =>
     `Do not declare the delivery complete until the lead has reviewed all ${handoff.outcomes.length} outputs together, automated checks pass, rendered artifacts have been inspected, and every unresolved customer or Scout dependency is listed.`
   ].join("\n");
 
+const buildBriefMarkdown = (snapshot: SessionSnapshot): string | undefined => {
+  const intervention = snapshot.postCall.intervention;
+  if (intervention?.decision !== "approved_for_build") return undefined;
+
+  const list = (items: string[]): string[] => items.map((item) => `- ${item}`);
+  return [
+    "# Authorized implementation brief",
+    "",
+    "This brief records the human-approved implementation slice. It does not authorize external repository mutations, merges, deployments, plugins, or network transfers.",
+    "",
+    "## Pain point",
+    "",
+    intervention.painId,
+    "",
+    "## Desired outcome",
+    "",
+    intervention.desiredOutcome,
+    "",
+    "## Approved proposal",
+    "",
+    intervention.proposal,
+    "",
+    "## Constraints",
+    "",
+    ...list(intervention.constraints),
+    "",
+    "## Acceptance criteria",
+    "",
+    ...list(intervention.acceptanceCriteria),
+    "",
+    "## Non-goals",
+    "",
+    ...list(intervention.nonGoals)
+  ].join("\n");
+};
+
 export const compactLaunchPrompt = (
   directory: string,
   outcomeCount = 1
@@ -441,6 +515,11 @@ export const writeCodexHandoffProject = async (
     ],
     ["business-graph.json", JSON.stringify(snapshot.graph, null, 2)]
   ];
+  const buildBrief = buildBriefMarkdown(snapshot);
+  if (buildBrief) {
+    artifactFiles.push("BUILD_BRIEF.md");
+    artifacts.push(["BUILD_BRIEF.md", buildBrief]);
+  }
   const normalizedArtifacts = artifacts.map(
     ([name, contents]) => [name, `${contents.trimEnd()}\n`] as const
   );
