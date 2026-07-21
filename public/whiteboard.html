@@ -294,6 +294,48 @@
               </label>
             </div>
           </details>
+          <details class="solution-brief" id="solution-brief" hidden>
+            <summary>Solution brief</summary>
+            <p class="solution-brief-intro">
+              Select one supported pain and define the bounded intervention Codex may implement.
+            </p>
+            <div class="solution-brief-fields">
+              <label>
+                <span>Problem to solve</span>
+                <select id="solution-pain">
+                  <option value="">No pain selected</option>
+                </select>
+              </label>
+              <label>
+                <span>Desired outcome</span>
+                <textarea id="solution-outcome" maxlength="1000" rows="2"></textarea>
+              </label>
+              <label>
+                <span>Proposed intervention</span>
+                <textarea id="solution-proposal" maxlength="4000" rows="3"></textarea>
+              </label>
+              <label>
+                <span>Constraints — one per line</span>
+                <textarea id="solution-constraints" maxlength="10000" rows="3"></textarea>
+              </label>
+              <label>
+                <span>Acceptance criteria — one per line</span>
+                <textarea id="solution-acceptance" maxlength="10000" rows="4"></textarea>
+              </label>
+              <label>
+                <span>Non-goals — one per line</span>
+                <textarea id="solution-non-goals" maxlength="10000" rows="3"></textarea>
+              </label>
+              <label>
+                <span>Decision</span>
+                <select id="solution-decision">
+                  <option value="candidate">Candidate — keep planning</option>
+                  <option value="approved_for_build">Approved for build</option>
+                </select>
+              </label>
+              <p class="solution-brief-status" id="solution-brief-status" role="status"></p>
+            </div>
+          </details>
           <details class="outline-disclosure">
             <summary>Diagram outline</summary>
             <div class="view-outline" id="view-outline" aria-label="Accessible diagram outline"></div>

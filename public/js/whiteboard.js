@@ -81,6 +81,15 @@ const elements = {
   reviewNotes: bySelector("#review-notes"),
   reviewTopic: bySelector("#review-topic"),
   reviewNotesText: bySelector("#review-notes-text"),
+  solutionBrief: bySelector("#solution-brief"),
+  solutionPain: bySelector("#solution-pain"),
+  solutionOutcome: bySelector("#solution-outcome"),
+  solutionProposal: bySelector("#solution-proposal"),
+  solutionConstraints: bySelector("#solution-constraints"),
+  solutionAcceptance: bySelector("#solution-acceptance"),
+  solutionNonGoals: bySelector("#solution-non-goals"),
+  solutionDecision: bySelector("#solution-decision"),
+  solutionStatus: bySelector("#solution-brief-status"),
   elementEditor: bySelector("#element-editor"),
   editorKicker: bySelector("#editor-kicker"),
   editorLabel: bySelector("#editor-label"),
@@ -464,10 +473,13 @@ function reviewEvidenceId() {
 }
 
 function reviewHistoryState() {
+  const intervention = currentSnapshot.postCall?.intervention;
   return {
     graph: cloneValue(currentSnapshot.graph),
     notes: currentSnapshot.postCall?.notes ?? "",
-    annotations: cloneValue(currentSnapshot.postCall?.annotations ?? {})
+    annotations: cloneValue(currentSnapshot.postCall?.annotations ?? {}),
+    intervention:
+      intervention === undefined ? undefined : cloneValue(intervention)
   };
 }
 
@@ -484,7 +496,15 @@ function applyReviewState(state, { record = true } = {}) {
     postCall: {
       ...currentSnapshot.postCall,
       notes: state.notes ?? currentSnapshot.postCall?.notes ?? "",
-      annotations: cloneValue(state.annotations ?? currentSnapshot.postCall?.annotations ?? {})
+      annotations: cloneValue(state.annotations ?? currentSnapshot.postCall?.annotations ?? {}),
+      intervention:
+        state.intervention === undefined
+          ? currentSnapshot.postCall?.intervention === undefined
+            ? undefined
+            : cloneValue(currentSnapshot.postCall.intervention)
+          : state.intervention === null
+            ? undefined
+            : cloneValue(state.intervention)
     }
   };
   reviewDirty = true;
@@ -535,6 +555,81 @@ function renderReviewChrome() {
   if (document.activeElement !== elements.reviewNotesText) {
     elements.reviewNotesText.value = currentSnapshot.postCall?.notes ?? "";
   }
+  renderSolutionBrief();
+}
+
+const interventionLines = (value) =>
+  String(value ?? "")
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+function renderSolutionBrief() {
+  if (!reviewMode || !currentSnapshot) return;
+  const intervention = currentSnapshot.postCall?.intervention;
+  const supportedPains = (currentSnapshot.graph?.pains ?? []).filter(
+    (pain) =>
+      currentSnapshot.postCall?.annotations?.[pain.id]?.disposition !==
+      "unsupported"
+  );
+  const selectedPainId = intervention?.painId ?? "";
+  elements.solutionPain.replaceChildren(
+    new Option("No pain selected", ""),
+    ...supportedPains.map(
+      (pain) => new Option(pain.description, pain.id, false, pain.id === selectedPainId)
+    )
+  );
+  elements.solutionPain.value = supportedPains.some(
+    (pain) => pain.id === selectedPainId
+  )
+    ? selectedPainId
+    : "";
+  const values = new Map([
+    [elements.solutionOutcome, intervention?.desiredOutcome ?? ""],
+    [elements.solutionProposal, intervention?.proposal ?? ""],
+    [elements.solutionConstraints, (intervention?.constraints ?? []).join("\n")],
+    [
+      elements.solutionAcceptance,
+      (intervention?.acceptanceCriteria ?? []).join("\n")
+    ],
+    [elements.solutionNonGoals, (intervention?.nonGoals ?? []).join("\n")]
+  ]);
+  const canEditIntervention = Boolean(elements.solutionPain.value);
+  for (const [element, value] of values) {
+    if (document.activeElement !== element) element.value = value;
+    element.disabled = !canEditIntervention;
+  }
+  elements.solutionDecision.disabled = !canEditIntervention;
+  elements.solutionDecision.value =
+    intervention?.decision ?? "candidate";
+  elements.solutionStatus.textContent =
+    intervention?.decision === "approved_for_build"
+      ? "Approved brief captured and ready for bounded implementation planning."
+      : intervention
+        ? "Candidate only. Codex implementation remains locked."
+        : "Select a supported pain to begin the solution brief.";
+}
+
+function readSolutionBrief() {
+  const painId = elements.solutionPain.value;
+  if (!painId) return undefined;
+  return {
+    painId,
+    desiredOutcome: elements.solutionOutcome.value.trim(),
+    proposal: elements.solutionProposal.value.trim(),
+    constraints: interventionLines(elements.solutionConstraints.value),
+    acceptanceCriteria: interventionLines(elements.solutionAcceptance.value),
+    nonGoals: interventionLines(elements.solutionNonGoals.value),
+    decision: elements.solutionDecision.value
+  };
+}
+
+function updateSolutionBrief() {
+  if (!reviewMode || !currentSnapshot) return;
+  applyReviewState({
+    ...reviewHistoryState(),
+    intervention: readSolutionBrief() ?? null
+  });
 }
 
 function connectionEditor(node) {
@@ -1430,6 +1525,18 @@ elements.reviewNotesText.addEventListener("input", () => {
 });
 elements.reviewNotesText.addEventListener("blur", () => { notesTextSession = false; });
 
+for (const element of [
+  elements.solutionPain,
+  elements.solutionOutcome,
+  elements.solutionProposal,
+  elements.solutionConstraints,
+  elements.solutionAcceptance,
+  elements.solutionNonGoals,
+  elements.solutionDecision
+]) {
+  element.addEventListener("change", updateSolutionBrief);
+}
+
 elements.reviewHandoff.addEventListener("click", (event) => {
   if (elements.reviewHandoff.getAttribute("aria-disabled") === "true") {
     event.preventDefault();
@@ -1451,7 +1558,8 @@ elements.reviewSave.addEventListener("click", async () => {
       expectedRevision: currentSnapshot.revision,
       graph: currentSnapshot.graph,
       notes: currentSnapshot.postCall?.notes ?? "",
-      annotations: currentSnapshot.postCall?.annotations ?? {}
+      annotations: currentSnapshot.postCall?.annotations ?? {},
+      intervention: currentSnapshot.postCall?.intervention ?? null
     });
     currentSnapshot = saved;
     reviewDirty = false;
@@ -1507,6 +1615,7 @@ async function start() {
       setInspectorOpen(false);
       elements.reviewToolbar.hidden = false;
       elements.reviewNotes.hidden = false;
+      elements.solutionBrief.hidden = false;
       elements.reviewHandoff.href = `/handoff/${encodeURIComponent(sessionId)}`;
       streamConnectionState = "live";
       renderSnapshot(await loadPostCallReview(sessionId));

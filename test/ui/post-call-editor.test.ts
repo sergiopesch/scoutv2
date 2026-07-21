@@ -216,6 +216,15 @@ describe("post-call diagram editor", () => {
         notes: "Approved",
         annotations: {
           "orders-api": { targetType: "node", disposition: "accepted", note: "Confirmed by owner" }
+        },
+        intervention: {
+          painId: "manual-allocation",
+          desiredOutcome: "Remove re-keying",
+          proposal: "Add an adapter",
+          constraints: ["Keep the API"],
+          acceptanceCriteria: ["No duplicate entry"],
+          nonGoals: ["Replace the warehouse"],
+          decision: "candidate"
         }
       },
       fetchImpl as typeof fetch
@@ -228,5 +237,6 @@ describe("post-call diagram editor", () => {
       })
     );
     expect(fetchImpl.mock.calls[0]?.[1]?.body).toContain('"disposition":"accepted"');
+    expect(fetchImpl.mock.calls[0]?.[1]?.body).toContain('"painId":"manual-allocation"');
   });
 });

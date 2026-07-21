@@ -289,9 +289,20 @@ export interface PostCallReviewState {
   revision: number;
   notes: string;
   annotations: Record<string, PostCallReviewAnnotation>;
+  intervention?: ApprovedIntervention;
   lastEditedAt?: number;
   approvedAt?: number;
   approvedGraphRevision?: number;
+}
+
+export interface ApprovedIntervention {
+  painId: string;
+  desiredOutcome: string;
+  proposal: string;
+  constraints: string[];
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+  decision: "candidate" | "approved_for_build";
 }
 
 export type PostCallReviewTargetType =

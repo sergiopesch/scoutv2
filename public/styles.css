@@ -1486,6 +1486,41 @@ summary:focus-visible {
   background: var(--paper);
 }
 .review-toolbar[hidden] { display: none; }
+.solution-brief[hidden] { display: none; }
+.solution-brief {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--rule);
+}
+.solution-brief > summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.solution-brief-intro,
+.solution-brief-status {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+.solution-brief-fields {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.75rem;
+}
+.solution-brief-fields label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--ink-muted);
+  font-size: 0.62rem;
+}
+.solution-brief-fields textarea,
+.solution-brief-fields select {
+  width: 100%;
+}
 .review-mode-copy { display: flex; min-width: 0; align-items: baseline; gap: 1rem; }
 .review-mode-copy p { margin: 0; }
 #review-state { color: var(--ink-muted); font-size: 0.72rem; }
