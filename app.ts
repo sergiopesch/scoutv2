@@ -1,7 +1,8 @@
 import express from "express";
 import { createScoutRuntime } from "./src/server/index.js";
 
+const app = express();
 const runtime = createScoutRuntime();
-const app: ReturnType<typeof express> = runtime.app;
+app.use(runtime.app);
 
 export default app;
