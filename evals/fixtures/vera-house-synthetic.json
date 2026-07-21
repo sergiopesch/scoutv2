@@ -1,0 +1,161 @@
+{
+  "id": "vera-house-synthetic",
+  "description": "Synthetic discovery conversation covering ownership, systems, handoffs, pains, and desired state.",
+  "participants": [
+    {
+      "id": "operator-1",
+      "name": "Morgan",
+      "role": "operator"
+    },
+    {
+      "id": "customer-1",
+      "name": "Sergio",
+      "role": "customer"
+    }
+  ],
+  "utterances": [
+    {
+      "id": "utt-001",
+      "participantId": "operator-1",
+      "text": "Could you describe Vera House and how the member journey works today?"
+    },
+    {
+      "id": "utt-002",
+      "participantId": "customer-1",
+      "text": "At Vera House, Guest Services owns the member journey from joining through day-to-day visits."
+    },
+    {
+      "id": "utt-003",
+      "participantId": "customer-1",
+      "text": "Club Operations hands each approved member's details to Guest Services."
+    },
+    {
+      "id": "utt-004",
+      "participantId": "operator-1",
+      "text": "Which systems support that journey?"
+    },
+    {
+      "id": "utt-005",
+      "participantId": "customer-1",
+      "text": "Guest Services uses HubSpot for membership information, Mindbody for training bookings, and Book4Time for treatment bookings."
+    },
+    {
+      "id": "utt-006",
+      "participantId": "customer-1",
+      "text": "The systems do not share one member record, so Guest Services manually copies the same details between them."
+    },
+    {
+      "id": "utt-007",
+      "participantId": "customer-1",
+      "text": "That duplicate entry wastes time and creates inconsistent member data. Staff sometimes miss preferences or see an old membership status."
+    },
+    {
+      "id": "utt-008",
+      "participantId": "operator-1",
+      "text": "What would a better future state look like?"
+    },
+    {
+      "id": "utt-009",
+      "participantId": "customer-1",
+      "text": "We want a unified member profile that automatically keeps HubSpot, Mindbody, and Book4Time aligned, with strict privacy controls."
+    },
+    {
+      "id": "utt-010",
+      "participantId": "customer-1",
+      "text": "The outcome should be less admin for Guest Services and a more personal member experience without exposing sensitive health information."
+    }
+  ],
+  "expectations": {
+    "minNodes": 5,
+    "minEdges": 2,
+    "minPains": 1,
+    "topicIncludes": [
+      "vera house",
+      "member journey",
+      "membership"
+    ],
+    "requiredNodeConcepts": [
+      {
+        "name": "guest services",
+        "anyOf": [
+          "guest services"
+        ]
+      },
+      {
+        "name": "club operations",
+        "anyOf": [
+          "club operations",
+          "operations"
+        ]
+      },
+      {
+        "name": "membership CRM",
+        "anyOf": [
+          "hubspot"
+        ],
+        "kinds": [
+          "system"
+        ]
+      },
+      {
+        "name": "booking systems",
+        "anyOf": [
+          "mindbody",
+          "book4time"
+        ],
+        "kinds": [
+          "system"
+        ]
+      },
+      {
+        "name": "unified member profile",
+        "anyOf": [
+          "unified member",
+          "member profile",
+          "single member"
+        ]
+      }
+    ],
+    "requiredEdgeConcepts": [
+      {
+        "name": "operations handoff",
+        "fromAnyOf": [
+          "club operations",
+          "operations"
+        ],
+        "toAnyOf": [
+          "guest services"
+        ],
+        "kinds": [
+          "hands_off_to",
+          "feeds"
+        ]
+      }
+    ],
+    "requiredPainConcepts": [
+      {
+        "name": "manual duplicate data",
+        "anyOf": [
+          "manual",
+          "duplicate",
+          "inconsistent",
+          "copy"
+        ],
+        "severities": [
+          "medium",
+          "high"
+        ]
+      }
+    ],
+    "forbiddenConcepts": [
+      {
+        "name": "operator hallucination",
+        "anyOf": [
+          "morgan owns",
+          "morgan manages"
+        ]
+      }
+    ],
+    "requireSuggestedQuestion": true
+  }
+}

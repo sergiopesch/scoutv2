@@ -364,6 +364,37 @@ Analysis then runs after the bounded leading-edge delay, or immediately with:
 curl -X POST http://127.0.0.1:3000/api/sessions/SESSION_ID/analyze
 ```
 
+## Transcript-to-graph eval
+
+The transcript eval bypasses Recall and the browser while exercising the same
+`CodexMeetingAnalyzer` used by live sessions. It turns an attributed transcript
+fixture into finalized utterances, runs a real Codex analysis turn, and checks
+the graph against semantic expectations:
+
+```bash
+npm run eval:transcript
+```
+
+This requires a locally authenticated Codex CLI, but no Recall credentials or
+meeting participants. By default it runs every JSON fixture in
+`evals/fixtures`. Pass one or more paths to run a subset, or write the
+machine-readable report to a disposable location:
+
+```bash
+npm run eval:transcript -- evals/fixtures/vera-house-synthetic.json
+npm run eval:transcript -- --output /tmp/scout-transcript-eval.json
+```
+
+Fixtures describe participants and utterances plus expected topic, node, edge,
+and pain concepts. The evaluator also enforces the production graph schema,
+valid references, and customer-only evidence. Expectations are deliberately
+semantic rather than exact JSON snapshots because graph labels and IDs may vary
+between valid model runs.
+
+Only synthetic fixtures belong in the repository. Real customer transcripts
+and recordings must stay outside git; they can still be evaluated by passing a
+local fixture path explicitly.
+
 ## Verification
 
 ```bash
