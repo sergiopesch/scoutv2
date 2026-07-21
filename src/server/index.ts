@@ -31,6 +31,11 @@ import {
   RecallClient,
   recallRawJsonBody
 } from "./recall/index.js";
+import {
+  OpenAIRealtimeTrialClient,
+  TrialGate,
+  type RealtimeTrialAdapter
+} from "./realtime/index.js";
 import { SessionStore } from "./session-store.js";
 import { SessionRevisionConflictError } from "./session-store.js";
 import {
@@ -148,6 +153,7 @@ export interface ScoutRuntimeDependencies {
   logger?: (record: Record<string, unknown>) => void;
   handoffRootDir?: string;
   handoffLauncher?: Pick<CodexHandoffLauncher, "launch" | "close">;
+  realtimeTrial?: RealtimeTrialAdapter;
 }
 
 export interface ScoutRuntime {
@@ -342,6 +348,20 @@ export const createScoutRuntime = (
           }
         })
       : recall);
+  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
+  const realtimeTrial =
+    dependencies.realtimeTrial ??
+    (openAiApiKey
+      ? new OpenAIRealtimeTrialClient({
+          apiKey: openAiApiKey,
+          model:
+            process.env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime-2.1",
+          voice: process.env.OPENAI_REALTIME_VOICE?.trim() || "marin"
+        })
+      : undefined);
+  const trialGate = new TrialGate({
+    maxActive: Math.max(1, config.maxActiveSessions)
+  });
   const sessionTokens = new Map<string, string>();
   const tokensBySession = new Map<string, string>();
   const whiteboardSessions = new Map<string, string>();
@@ -887,8 +907,77 @@ export const createScoutRuntime = (
       activeSessions: activeSessionCount(),
       retainedSessions: store.list().length,
       sseClients: sseClientCount(),
+      activePublicTrials: trialGate.activeCount(),
       readiness: await readiness()
     });
+  });
+
+  app.post(
+    "/api/trial/realtime",
+    express.text({ type: "application/sdp", limit: "64kb" }),
+    async (request, response) => {
+      if (closing) {
+        response.status(503).json({ error: "Scout is shutting down" });
+        return;
+      }
+      if (!realtimeTrial) {
+        response.status(503).json({
+          error: "The public voice trial is not configured."
+        });
+        return;
+      }
+      const sdp = typeof request.body === "string" ? request.body.trim() : "";
+      if (!sdp.startsWith("v=0") || sdp.length < 32) {
+        response.status(400).json({ error: "A valid WebRTC SDP offer is required." });
+        return;
+      }
+
+      const clientId = request.ip || request.socket.remoteAddress || "unknown";
+      const admission = trialGate.acquire(clientId);
+      if (!admission.accepted) {
+        response.setHeader("Retry-After", String(admission.retryAfterSeconds));
+        response.status(429).json({
+          error:
+            admission.reason === "capacity"
+              ? "Scout is interviewing someone else right now. Please try again shortly."
+              : "This browser has reached the trial limit. Please try again later."
+        });
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15_000);
+      timeout.unref();
+      try {
+        const call = await realtimeTrial.createCall({
+          sdp,
+          safetyIdentifier: `scout-trial-${admission.admission.id}`,
+          signal: controller.signal
+        });
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("Content-Type", "application/sdp");
+        response.setHeader("X-Scout-Trial-Id", admission.admission.id);
+        if (call.callId) response.setHeader("X-Scout-Call-Id", call.callId);
+        response.status(201).send(call.sdp);
+      } catch (error) {
+        trialGate.release(admission.admission.id);
+        log({
+          level: "error",
+          event: "trial.realtime_create_failed",
+          detail: error instanceof Error ? error.message : String(error)
+        });
+        response.status(502).json({
+          error: "Scout could not start the voice interview. Please try again."
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+  );
+
+  app.post("/api/trial/realtime/:trialId/end", (request, response) => {
+    trialGate.release(routeParam(request.params.trialId));
+    response.status(204).end();
   });
 
   app.post("/api/sessions", async (request, response) => {
@@ -1713,6 +1802,7 @@ export const createScoutRuntime = (
       sessionEpochs.clear();
       recallEventHighWater.clear();
       participantEventHighWater.clear();
+      trialGate.clear();
     })();
 
     closePromise = new Promise<void>((resolve, reject) => {

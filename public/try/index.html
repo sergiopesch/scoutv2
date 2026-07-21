@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Talk with Scout for two minutes and turn one business workflow into a clear process, organisation, and architecture map."
+    />
+    <title>Try Scout — a two-minute business interview</title>
+    <link rel="icon" href="/assets/scout-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/try/trial.css" />
+  </head>
+  <body class="trial-page" data-phase="idle">
+    <header class="trial-header">
+      <a class="trial-brand" href="/try/" aria-label="Scout trial home">
+        <img src="/assets/scout-icon.svg" alt="" />
+        <span>SCOUT</span>
+      </a>
+      <p class="trial-header-note">Two-minute business discovery</p>
+    </header>
+
+    <main class="trial-workspace">
+      <section class="conversation-panel" aria-labelledby="trial-title">
+        <div class="conversation-intro">
+          <h1 id="trial-title">Tell Scout how your business works.</h1>
+          <p>
+            A two-minute conversation becomes a clear map of your process,
+            organisation and systems.
+          </p>
+        </div>
+
+        <div class="trial-summary" aria-live="polite">
+          <p id="privacy-note">
+            AI interviewer · Microphone required · Audio is processed by OpenAI
+            for this trial; Scout does not save the transcript
+          </p>
+          <div class="trial-timer">
+            <strong id="timer-value">02:00</strong>
+            <span id="timer-label">ready</span>
+          </div>
+        </div>
+
+        <div class="voice-console">
+          <div class="voice-presence" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img">
+              <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+              <path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V22M8.5 22h7" />
+            </svg>
+            <div class="waveform" id="waveform">
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+
+          <div class="transcript" id="transcript" aria-live="polite">
+            <div class="transcript-empty" id="transcript-empty">
+              <strong>Scout asks the questions.</strong>
+              <p>
+                Pick one workflow you know well. Scout will listen for its steps,
+                owners, systems and friction.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <p class="trial-error" id="trial-error" role="alert" hidden></p>
+
+        <button class="interview-button" id="interview-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+            <path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V22M8.5 22h7" />
+          </svg>
+          <span id="interview-button-label">Start the 2-minute interview</span>
+        </button>
+
+        <div class="listening-block">
+          <p class="section-label">Scout is listening for</p>
+          <div class="listening-grid">
+            <div>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" /></svg>
+              <span>How work moves</span>
+            </div>
+            <div>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="3" /><path d="M5 21c.8-4 3.1-6 7-6s6.2 2 7 6" /></svg>
+              <span>Who owns each step</span>
+            </div>
+            <div>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.7 20h18.6L12 3Z" /><path d="M12 9v5M12 17.5v.5" /></svg>
+              <span>Where systems or handoffs break</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="map-panel" aria-labelledby="map-title">
+        <div class="map-tabs-row">
+          <div class="map-tabs" role="tablist" aria-label="Business map views">
+            <button role="tab" aria-selected="true" data-view="process">Process</button>
+            <button role="tab" aria-selected="false" data-view="organisation">Organisation</button>
+            <button role="tab" aria-selected="false" data-view="architecture">Architecture</button>
+          </div>
+          <p class="map-status" id="map-status">
+            <span class="map-status-mark" aria-hidden="true"></span>
+            <span>Your map will appear here</span>
+          </p>
+        </div>
+
+        <div class="map-heading-row">
+          <p class="section-label" id="map-title">Live business map</p>
+          <div class="map-controls" aria-label="Map controls">
+            <button type="button" data-map-action="minus" aria-label="Zoom out">−</button>
+            <output id="zoom-value">100%</output>
+            <button type="button" data-map-action="plus" aria-label="Zoom in">+</button>
+            <button type="button" data-map-action="fit" aria-label="Fit map">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="map-viewport" id="map-viewport" tabindex="0">
+          <div class="map-empty" id="map-empty">
+            <span class="map-empty-number">01</span>
+            <div>
+              <h2>Start with one workflow.</h2>
+              <p>
+                As you speak, Scout will organise what it hears into process,
+                organisation and architecture views.
+              </p>
+            </div>
+          </div>
+          <div class="graph-track" id="graph-track" hidden></div>
+        </div>
+
+        <div class="map-legend" aria-label="Map legend">
+          <span><i class="legend-solid"></i> Supported</span>
+          <span><i class="legend-progress"></i> Forming</span>
+          <span><i class="legend-outline"></i> Open question</span>
+        </div>
+      </section>
+    </main>
+
+    <footer class="trial-progress" aria-label="Trial progress">
+      <div data-progress="conversation" class="is-active">
+        <span>1</span><p><strong>Conversation</strong><small id="progress-conversation">Ready · 02:00</small></p>
+      </div>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M14 6l6 6-6 6" /></svg>
+      <div data-progress="map">
+        <span>2</span><p><strong>Business map</strong><small id="progress-map">Builds live from your answers</small></p>
+      </div>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M14 6l6 6-6 6" /></svg>
+      <div data-progress="handoff">
+        <span>3</span><p><strong>Codex handoff</strong><small id="progress-handoff">Ready after the interview</small></p>
+      </div>
+    </footer>
+
+    <aside class="handoff-panel" id="handoff-panel" aria-labelledby="handoff-title" hidden>
+      <button class="handoff-close" id="handoff-close" type="button" aria-label="Close handoff preview">×</button>
+      <div class="handoff-scroll">
+        <h2 id="handoff-title">Your Codex handoff is ready.</h2>
+        <p class="handoff-lede">This is the structured context Scout would share with Codex.</p>
+
+        <section>
+          <h3>Problem understood</h3>
+          <p id="handoff-problem">Scout captured the workflow you described.</p>
+        </section>
+        <section>
+          <h3>Evidence captured</h3>
+          <p id="handoff-evidence">0 attributed utterances</p>
+        </section>
+        <section class="handoff-split">
+          <div>
+            <h3>Business structure</h3>
+            <ul class="check-list" id="handoff-structure"></ul>
+          </div>
+          <div>
+            <h3>Open questions</h3>
+            <ul id="handoff-questions"></ul>
+          </div>
+        </section>
+        <section>
+          <h3>Suggested Codex work</h3>
+          <ol>
+            <li>Confirm the build brief</li>
+            <li>Prototype the highest-value workflow</li>
+            <li>Validate against customer evidence</li>
+          </ol>
+        </section>
+        <section>
+          <h3>Package inventory</h3>
+          <div class="package-list">
+            <button type="button" data-package-file="transcript.md"><span>transcript.md</span><span>Evidence</span></button>
+            <button type="button" data-package-file="business-graph.json"><span>business-graph.json</span><span>Structure</span></button>
+            <button type="button" data-package-file="open-questions.md"><span>open-questions.md</span><span>Gaps</span></button>
+            <button type="button" data-package-file="codex-brief.md"><span>codex-brief.md</span><span>Build brief</span></button>
+          </div>
+        </section>
+        <button class="handoff-primary" id="handoff-preview" type="button">Preview structured handoff</button>
+        <button class="handoff-secondary" id="handoff-back" type="button">Back to map</button>
+        <p class="handoff-disclosure">Demo preview · Nothing has been sent</p>
+      </div>
+    </aside>
+
+    <dialog class="package-dialog" id="package-dialog">
+      <div class="package-dialog-header">
+        <div><p class="section-label">Codex handoff preview</p><h2 id="package-dialog-title">codex-brief.md</h2></div>
+        <button id="package-dialog-close" type="button" aria-label="Close package preview">×</button>
+      </div>
+      <pre id="package-preview"></pre>
+      <p>Read-only demo structure · Nothing has been sent</p>
+    </dialog>
+
+    <audio id="scout-audio" autoplay hidden></audio>
+    <script type="module" src="/try/trial.js"></script>
+  </body>
+</html>
