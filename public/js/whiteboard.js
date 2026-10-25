@@ -176,6 +176,8 @@ mermaid.initialize({
     htmlLabels: false,
     nodeSpacing: 56,
     rankSpacing: 82,
+    wrappingWidth: 200,
+    minNodeWidth: 0,
     padding: 14,
     useMaxWidth: true
   },
